@@ -4,6 +4,18 @@ Thanks for helping improve Maximus.
 
 This project aims to make config-heavy repositories easier to understand, safer to change, and faster to onboard into. Good contributions usually improve one of those three outcomes.
 
+## Runtime Direction
+
+Maximus is currently in a runtime transition period.
+
+- The executable code in this repository still runs as a Node.js CLI today.
+- The canonical runtime direction is a Rust rewrite.
+- Until the Rust cutover lands, the JS implementation remains the reference implementation for behavior and golden output generation.
+- `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to extend the JS codebase directly.
+- `docs/plan/013+` and the older JS backlog are deferred until the Rust cutover is complete.
+
+Read [docs/runtime-transition.md](docs/runtime-transition.md) before starting any roadmap-sized work.
+
 ## Ways to Contribute
 
 - Report bugs or false positives in existing checks
@@ -16,6 +28,13 @@ This project aims to make config-heavy repositories easier to understand, safer 
 For larger features or behavior changes, open an issue first so we can agree on scope and expected behavior before code is written.
 
 For small fixes, feel free to open a pull request directly.
+
+If you are working from the local planning docs, use the following rule set:
+
+- Treat `docs/plan/001` through `012` as the source of truth for Rust v1 objectives, target outcomes, public interface changes, tests and acceptance, and done criteria.
+- Do not reuse the JS file lists inside those plan docs as ownership guidance for new implementation work.
+- Do not start `docs/plan/013+` implementation work before the Rust cutover phases are complete.
+- Follow the transition families in order: `062` for direction, `063` for bootstrap/core, `064` for current MVP parity, `065` for backlog `001~012`, `066` for wrapper/cutover/distribution.
 
 ## Development Setup
 
@@ -37,6 +56,8 @@ src/lib/          parsing and filesystem helpers
 test/             regression tests
 ```
 
+Current repository layout reflects the Node.js reference runtime. Rust crates and workspace files will be introduced as the transition proceeds; until then, changes should avoid implying that JS backlog expansion is the default roadmap.
+
 ## Contribution Guidelines
 
 - Keep changes focused. One behavior change per pull request is ideal.
@@ -44,6 +65,7 @@ test/             regression tests
 - Add or update tests when changing detection or fix behavior.
 - Update `README.md` if the user-facing behavior or supported checks change.
 - Avoid destructive fixes unless the user can clearly preview and understand them.
+- If the change belongs to the rewrite roadmap, make sure the wording in README, contributing docs, and transition docs stays aligned.
 
 ## Testing
 
