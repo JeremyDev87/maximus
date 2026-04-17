@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/JeremyDev87/maximus/security/advisories/new
+    about: Please report security vulnerabilities privately.
+  - name: Project overview
+    url: https://github.com/JeremyDev87/maximus#readme
+    about: Read the README before opening a question-oriented issue.

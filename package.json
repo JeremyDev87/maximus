@@ -1,0 +1,46 @@
+{
+  "name": "maximus",
+  "version": "0.1.0",
+  "description": "Bring order to chaotic configs.",
+  "author": "JeremyDev87",
+  "type": "module",
+  "bin": {
+    "maximus": "./bin/maximus.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeremyDev87/maximus.git"
+  },
+  "homepage": "https://github.com/JeremyDev87/maximus#readme",
+  "bugs": {
+    "url": "https://github.com/JeremyDev87/maximus/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/JeremyDev87"
+  },
+  "scripts": {
+    "audit": "node ./bin/maximus.js audit",
+    "doctor": "node ./bin/maximus.js doctor",
+    "fix": "node ./bin/maximus.js fix",
+    "test": "node --test"
+  },
+  "keywords": [
+    "cli",
+    "config",
+    "eslint",
+    "prettier",
+    "tsconfig",
+    "env"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}
