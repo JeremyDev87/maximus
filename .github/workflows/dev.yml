@@ -62,6 +62,9 @@ jobs:
       - name: Validate Cargo workspace metadata
         run: cargo metadata --format-version 1 --no-deps
 
+      - name: Run Rust core tests
+        run: cargo test -p maximus-core
+
   node-compatibility:
     name: Node compatibility (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
