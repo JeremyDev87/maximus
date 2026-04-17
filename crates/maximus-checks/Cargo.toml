@@ -1,0 +1,11 @@
+[package]
+name = "maximus-checks"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/JeremyDev87/maximus"
+description = "Rust checks bootstrap crate for Maximus."
+
+[lib]
+path = "src/lib.rs"

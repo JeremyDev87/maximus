@@ -1,0 +1,11 @@
+[package]
+name = "maximus-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/JeremyDev87/maximus"
+description = "Rust core bootstrap crate for Maximus."
+
+[lib]
+path = "src/lib.rs"
