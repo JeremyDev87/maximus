@@ -1,13 +1,13 @@
 # Maximus
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/JeremyDev87/maximus/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/JeremyDev87/maximus/blob/master/LICENSE)
 
 <p align="center">
-  <a href="README.md">한국어</a> |
-  <a href="README.en.md">English</a> |
-  <a href="README.zh-CN.md">中文</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.ja.md">日本語</a>
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.md">한국어</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.en.md">English</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.zh-CN.md">中文</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.es.md">Español</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.ja.md">日本語</a>
 </p>
 
 혼란스러운 설정에 질서를.
@@ -15,6 +15,18 @@
 Maximus는 프로젝트 곳곳에 흩어진 설정 파일을 점검하고, 충돌과 중복을 정리하며 질서 있는 개발환경을 만드는 CLI입니다.
 
 현대 프로젝트는 `tsconfig`, `eslint`, `prettier`, `vite`, `jest`, `next.config`, `.env` 등 수많은 설정 위에 서 있습니다. Maximus는 무너진 질서를 다시 세웁니다.
+
+## 런타임 전환 방향
+
+Maximus의 canonical runtime 방향은 이제 Node.js 확장이 아니라 Rust 재작성입니다.
+
+- 현재 배포된 CLI와 이 저장소의 실행 구현은 아직 Node.js 기준입니다.
+- 사용자 명령 표면은 유지합니다: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
+- Rust cutover 전까지 현재 JS 코드는 reference implementation으로 유지됩니다.
+- `docs/plan/001`~`012`는 더 이상 JS 구현 TODO가 아니라 Rust v1 spec input으로 사용합니다.
+- `docs/plan/013+`와 기존 JS backlog는 Rust cutover가 끝날 때까지 defer 상태입니다.
+
+전환 범위와 단계별 역할은 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)에서 확인할 수 있습니다.
 
 ## 주요 기능
 
@@ -81,6 +93,8 @@ node ./bin/maximus.js audit
 node ./bin/maximus.js fix --dry-run
 ```
 
+현재 로컬 개발 명령은 Node.js reference 구현을 기준으로 유지됩니다. Rust bootstrap 이후에도 사용자-facing 명령 예시는 계속 `npx maximus ...` 형태를 유지합니다.
+
 ## 이런 팀에 추천
 
 - 모노레포 / 멀티패키지 운영 팀
@@ -89,11 +103,11 @@ node ./bin/maximus.js fix --dry-run
 
 ## 기여하기
 
-새로운 점검기 추가, 자동 수정 안전성 개선, false positive 감소 같은 기여를 환영합니다. 시작점은 [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/main/CONTRIBUTING.md)에서 확인할 수 있습니다.
+새로운 점검기 추가, 자동 수정 안전성 개선, false positive 감소 같은 기여를 환영합니다. 다만 현재 우선순위는 JS backlog 직접 확장이 아니라 Rust rewrite family입니다. 기여 시작 전에는 [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md)와 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)를 먼저 확인해 주세요.
 
 ## 보안
 
-보안 이슈가 의심된다면 공개 이슈부터 열지 말고 [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/main/SECURITY.md)의 비공개 신고 절차를 따라 주세요.
+보안 이슈가 의심된다면 공개 이슈부터 열지 말고 [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/master/SECURITY.md)의 비공개 신고 절차를 따라 주세요.
 
 ## 스폰서
 
@@ -101,4 +115,4 @@ Maximus가 팀의 설정 혼란을 줄이는 데 도움이 된다면 [GitHub Spo
 
 ## 라이선스
 
-Maximus는 [MIT License](https://github.com/JeremyDev87/maximus/blob/main/LICENSE)로 배포됩니다.
+Maximus는 [MIT License](https://github.com/JeremyDev87/maximus/blob/master/LICENSE)로 배포됩니다.
