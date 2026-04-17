@@ -1,0 +1,142 @@
+name: maximus-dev
+
+on:
+  push:
+    paths:
+      - "bin/**"
+      - "src/**"
+      - "test/**"
+      - ".github/workflows/dev.yml"
+      - ".github/workflows/release-drafter.yml"
+      - ".github/release-drafter.yml"
+      - "package.json"
+      - "README*.md"
+      - "LICENSE"
+      - "CODE_OF_CONDUCT.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+  pull_request:
+    paths:
+      - "bin/**"
+      - "src/**"
+      - "test/**"
+      - ".github/workflows/dev.yml"
+      - ".github/workflows/release-drafter.yml"
+      - ".github/release-drafter.yml"
+      - "package.json"
+      - "README*.md"
+      - "LICENSE"
+      - "CODE_OF_CONDUCT.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-compatibility:
+    name: Node compatibility (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run unit tests
+        run: npm test
+
+  cli-smoke-check:
+    name: CLI smoke checks (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Smoke test audit
+        run: node ./bin/maximus.js audit ./test/fixtures/clean-project
+
+      - name: Smoke test doctor
+        run: node ./bin/maximus.js doctor ./test/fixtures/clean-project
+
+      - name: Smoke test fix
+        run: node ./bin/maximus.js fix ./test/fixtures/clean-project --dry-run
+
+  readme-consistency-check:
+    name: README consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify multilingual README files and language links
+        run: |
+          files=(
+            README.md
+            README.en.md
+            README.zh-CN.md
+            README.es.md
+            README.ja.md
+          )
+
+          for file in "${files[@]}"; do
+            test -f "$file"
+            grep -q 'README.md' "$file"
+            grep -q 'README.en.md' "$file"
+            grep -q 'README.zh-CN.md' "$file"
+            grep -q 'README.es.md' "$file"
+            grep -q 'README.ja.md' "$file"
+          done
+
+  package-check:
+    name: Package dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Pack package
+        run: |
+          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm pack --json > pack.json
+          node -e "const fs=require('node:fs'); const pack=JSON.parse(fs.readFileSync('pack.json','utf8')); console.log(pack[0].filename);" > tarball.txt
+
+      - name: Smoke test packaged CLI entrypoint
+        run: |
+          tarball="$(cat tarball.txt)"
+          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus audit ./test/fixtures/clean-project
+          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus doctor ./test/fixtures/clean-project
+          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus fix ./test/fixtures/clean-project --dry-run
