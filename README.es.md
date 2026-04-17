@@ -1,13 +1,13 @@
 # Maximus
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/JeremyDev87/maximus/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/JeremyDev87/maximus/blob/master/LICENSE)
 
 <p align="center">
-  <a href="README.md">한국어</a> |
-  <a href="README.en.md">English</a> |
-  <a href="README.zh-CN.md">中文</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.ja.md">日本語</a>
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.md">한국어</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.en.md">English</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.zh-CN.md">中文</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.es.md">Español</a> |
+  <a href="https://github.com/JeremyDev87/maximus/blob/master/README.ja.md">日本語</a>
 </p>
 
 Pon orden en configuraciones caóticas.
@@ -15,6 +15,18 @@ Pon orden en configuraciones caóticas.
 Maximus es una CLI que audita archivos de configuración dispersos por todo un proyecto, ordena conflictos y duplicaciones, y ayuda a los equipos a mantener un entorno de desarrollo limpio y coherente.
 
 Los proyectos modernos se apoyan en muchas capas de configuración como `tsconfig`, `eslint`, `prettier`, `vite`, `jest`, `next.config` y `.env`. Maximus restaura el orden cuando esa configuración empieza a desviarse.
+
+## Transición de Runtime
+
+Maximus ahora prioriza una reescritura en Rust como su dirección de runtime canónico, en lugar de seguir ampliando el backlog de JS como ruta principal de implementación.
+
+- La CLI publicada actualmente y el código ejecutable de este repositorio todavía funcionan sobre Node.js.
+- La superficie de comandos para usuarios se mantiene igual: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
+- Hasta que llegue el cutover, el runtime actual en JS se mantiene como reference implementation.
+- `docs/plan/001` hasta `012` ya no deben leerse como tareas directas para ampliar el código JS; ahora son spec inputs para Rust v1.
+- `docs/plan/013+` y el backlog JS anterior permanecen en estado deferred hasta que termine el Rust cutover.
+
+Consulta el [documento de runtime transition](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) para ver el límite de la transición, las fases y las reglas para contribuir.
 
 ## Qué Hace
 
@@ -81,6 +93,8 @@ node ./bin/maximus.js audit
 node ./bin/maximus.js fix --dry-run
 ```
 
+Estos comandos locales siguen validando la reference implementation actual en Node.js. Incluso después de iniciar el Rust bootstrap, los ejemplos para usuarios se mantienen con la forma `npx maximus ...`.
+
 ## Recomendado Para
 
 - Equipos que operan monorepos o repositorios con múltiples paquetes
@@ -89,11 +103,11 @@ node ./bin/maximus.js fix --dry-run
 
 ## Contribuir
 
-Las contribuciones son bienvenidas. Si quieres añadir una nueva verificación, mejorar la seguridad de las correcciones automáticas o reducir falsos positivos, empieza por [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/main/CONTRIBUTING.md).
+Las contribuciones son bienvenidas. Si quieres añadir una nueva verificación, mejorar la seguridad de las correcciones automáticas o reducir falsos positivos, empieza por [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) y por el [documento de runtime transition](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md), porque la prioridad activa es la familia de reescritura en Rust y no la expansión directa del backlog JS.
 
 ## Seguridad
 
-Si crees que encontraste un problema de seguridad, no abras primero un issue público. Usa [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/main/SECURITY.md) para el proceso de reporte privado.
+Si crees que encontraste un problema de seguridad, no abras primero un issue público. Usa [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/master/SECURITY.md) para el proceso de reporte privado.
 
 ## Sponsor
 
@@ -101,4 +115,4 @@ Si Maximus ayuda a tu equipo a mantener bajo control el caos de configuración, 
 
 ## Licencia
 
-Maximus se distribuye bajo la [MIT License](https://github.com/JeremyDev87/maximus/blob/main/LICENSE).
+Maximus se distribuye bajo la [MIT License](https://github.com/JeremyDev87/maximus/blob/master/LICENSE).
