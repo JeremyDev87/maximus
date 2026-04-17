@@ -1,0 +1,12 @@
+Maximus fix
+Target: <TARGET>
+
+Dry run: 1 safe fix(es) available.
+
+Post-check: 0 error, 1 warnings, 0 info
+
+Remaining findings
+- [warn] Missing .env.example contract
+  file: .env
+  detail: Runtime env files exist, but .env.example is missing.
+  hint: Run "maximus fix" to create a blank contract file.

@@ -1,0 +1,14 @@
+Maximus doctor
+Target: <TARGET>
+
+Diagnosis: clean
+Project shape: single package, 1 package(s), 1 config file(s), 0 env folder(s)
+
+Prescription
+- No automatic fixes are currently available.
+- No manual follow-up is required right now.
+
+No config drift detected.
+
+Recommended structure
+- Current config surface looks healthy. Keep shared rules centralized as the repo grows.
