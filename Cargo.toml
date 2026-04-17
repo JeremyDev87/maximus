@@ -1,0 +1,7 @@
+[workspace]
+members = [
+  "crates/maximus-cli",
+  "crates/maximus-core",
+  "crates/maximus-checks",
+]
+resolver = "2"

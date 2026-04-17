@@ -1,0 +1,12 @@
+[package]
+name = "maximus-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/JeremyDev87/maximus"
+description = "Rust CLI bootstrap crate for Maximus."
+
+[[bin]]
+name = "maximus"
+path = "src/main.rs"
