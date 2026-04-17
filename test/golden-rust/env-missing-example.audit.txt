@@ -1,0 +1,14 @@
+Maximus audit
+Target: <TARGET>
+
+Status: attention needed
+Findings: 0 error, 1 warnings, 0 info
+Fixes available: 1
+
+Structure: single package, 0 package(s), 1 config file(s), 1 env folder(s)
+
+Findings
+- [warn] Missing .env.example contract
+  file: .env
+  detail: Runtime env files exist, but .env.example is missing.
+  hint: Run "maximus fix" to create a blank contract file.

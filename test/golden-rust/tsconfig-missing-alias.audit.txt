@@ -1,0 +1,14 @@
+Maximus audit
+Target: <TARGET>
+
+Status: blocking issues
+Findings: 1 error, 0 warnings, 0 info
+Fixes available: 0
+
+Structure: single package, 1 package(s), 2 config file(s), 0 env folder(s)
+
+Findings
+- [error] Path alias target does not exist
+  file: tsconfig.json
+  detail: @missing/* points to ghost/*, but the resolved path was not found.
+  hint: Update or remove stale aliases before they break editor and build resolution.

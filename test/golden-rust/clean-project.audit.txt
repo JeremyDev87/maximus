@@ -1,0 +1,13 @@
+Maximus audit
+Target: <TARGET>
+
+Status: clean
+Findings: 0 error, 0 warnings, 0 info
+Fixes available: 0
+
+Structure: single package, 1 package(s), 1 config file(s), 0 env folder(s)
+
+No config drift detected.
+
+Recommendations
+- Current config surface looks healthy. Keep shared rules centralized as the repo grows.
