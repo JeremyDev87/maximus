@@ -308,17 +308,9 @@ pub fn render_synced_env_example(existing_text: &str, missing_keys: &[String]) -
     } else {
         "\n"
     };
-    let mut addition_keys = missing_keys.to_vec();
-    addition_keys.sort();
+    let addition = render_env_template(missing_keys.iter().map(|key| key.as_str()));
 
-    let addition = addition_keys
-        .into_iter()
-        .map(|key| format!("{key}="))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let suffix = if addition.is_empty() { "" } else { "\n" };
-
-    format!("{existing_text}{prefix}{addition}{suffix}")
+    format!("{existing_text}{prefix}{addition}")
 }
 
 #[derive(Debug, Clone)]
