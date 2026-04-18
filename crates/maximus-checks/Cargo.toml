@@ -9,3 +9,10 @@ description = "Rust checks bootstrap crate for Maximus."
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+maximus-core = { path = "../maximus-core" }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
