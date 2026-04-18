@@ -1,5 +1,6 @@
 //! Pure data-model and parsing helpers for the Maximus Rust rewrite.
 
+pub mod baseline;
 pub mod discover;
 pub mod env_parser;
 pub mod fixes;
