@@ -1,8 +1,6 @@
 use maximus_core::{make_finding, FileKind, FindingInput, ProjectSnapshot, Severity, read_text_if_exists};
 
-use crate::registry::{
-    has_object_key, package_file_for_directory, read_package_json, CheckOutcome,
-};
+use crate::registry::{package_file_for_directory, read_package_json, CheckOutcome};
 
 const FORMATTING_RULES: &[&str] = &[
     "array-bracket-spacing",
@@ -49,22 +47,22 @@ pub fn run_eslint_prettier_check(project: &ProjectSnapshot) -> std::io::Result<C
         }
 
         if let Some(package_json) = package_json.as_ref() {
-            if has_object_key(package_json, "eslintConfig") {
-                if let Some(value) = package_json.get("eslintConfig") {
-                    eslint_sources.push(
-                        serde_json::to_string_pretty(value)
-                            .unwrap_or_else(|_| value.to_string()),
-                    );
-                }
+            if let Some(value) = package_json
+                .get("eslintConfig")
+                .filter(|value| is_js_truthy_json_value(value))
+            {
+                eslint_sources.push(
+                    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+                );
             }
 
-            if has_object_key(package_json, "prettier") {
-                if let Some(value) = package_json.get("prettier") {
-                    prettier_sources.push(
-                        serde_json::to_string_pretty(value)
-                            .unwrap_or_else(|_| value.to_string()),
-                    );
-                }
+            if let Some(value) = package_json
+                .get("prettier")
+                .filter(|value| is_js_truthy_json_value(value))
+            {
+                prettier_sources.push(
+                    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+                );
             }
         }
 
@@ -170,4 +168,21 @@ fn is_word_char(character: Option<char>) -> bool {
     character
         .map(|character| character.is_alphanumeric() || character == '_')
         .unwrap_or(false)
+}
+
+fn is_js_truthy_json_value(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(value) => {
+            value.as_i64().map(|value| value != 0).unwrap_or_else(|| {
+                value
+                    .as_u64()
+                    .map(|value| value != 0)
+                    .unwrap_or_else(|| value.as_f64().map(|value| value != 0.0).unwrap_or(true))
+            })
+        }
+        serde_json::Value::String(value) => !value.is_empty(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+    }
 }

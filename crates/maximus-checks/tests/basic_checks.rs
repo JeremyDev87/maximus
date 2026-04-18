@@ -113,6 +113,51 @@ fn eslint_prettier_check_reports_separate_info_when_no_bridge_is_declared() {
 }
 
 #[test]
+fn eslint_prettier_check_ignores_falsy_package_json_entries_like_js() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("package.json"),
+        r#"{ "eslintConfig": false, "prettier": { "semi": true } }"#,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_eslint_prettier_check(&project).expect("check should run");
+
+    assert!(outcome.findings.is_empty());
+}
+
+#[test]
+fn duplicate_config_detail_uses_js_style_relative_path_rendering() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("packages/app/package.json"),
+        r#"{ "prettier": { "semi": true } }"#,
+    );
+    write(fixture.path().join("packages/app/.prettierrc.json"), "{}");
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_config_duplicate_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "duplicate-config:Prettier:{}",
+            fixture.path().join("packages/app").to_string_lossy()
+        ),
+        Severity::Warn,
+        "Prettier config is declared in multiple places",
+        &format!(
+            "Found 2 Prettier config sources in {}.",
+            expected_js_relative_dir("packages/app")
+        ),
+        "Keep a single Prettier entry point per directory to avoid drift.",
+        Some(fixture.path().join("packages/app/package.json")),
+    );
+}
+
+#[test]
 fn registered_checks_aggregate_duplicate_and_conflict_findings() {
     let fixture = TempDir::new().expect("temp dir should exist");
 
@@ -154,6 +199,14 @@ fn write(path: impl AsRef<Path>, content: &str) {
     }
 
     fs::write(path, content).expect("fixture file should write");
+}
+
+fn expected_js_relative_dir(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('/', "\\")
+    } else {
+        path.to_string()
+    }
 }
 
 fn assert_has_finding(
