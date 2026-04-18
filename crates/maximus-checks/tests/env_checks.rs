@@ -163,6 +163,19 @@ fn env_example_render_helpers_match_js_create_and_sync_semantics() {
         &["ZETA".to_string(), "ALPHA".to_string()],
     );
     assert_eq!(synced_without_trailing_newline, "PRIMARY=\nALPHA=\nZETA=\n");
+
+    let synced_with_js_like_locale_order = render_synced_env_example(
+        "PRIMARY=\n",
+        &[
+            "API_URL".to_string(),
+            "API-URL".to_string(),
+            "API.URL".to_string(),
+        ],
+    );
+    assert_eq!(
+        synced_with_js_like_locale_order,
+        "PRIMARY=\nAPI_URL=\nAPI-URL=\nAPI.URL=\n"
+    );
 }
 
 fn write(path: impl AsRef<Path>, content: &str) {
