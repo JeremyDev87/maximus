@@ -46,7 +46,7 @@ pub fn run_config_duplicate_check(project: &ProjectSnapshot) -> std::io::Result<
                 category: Some("duplicates".to_string()),
                 detail: Some(format!(
                     "Found {total_sources} {label} config sources in {}.",
-                    directory.relative_dir
+                    js_detail_directory(&directory.relative_dir)
                 )),
                 file,
                 fix_ids: Vec::new(),
@@ -95,4 +95,12 @@ pub fn run_config_duplicate_check(project: &ProjectSnapshot) -> std::io::Result<
         findings,
         fixes: Vec::new(),
     })
+}
+
+fn js_detail_directory(relative_dir: &str) -> String {
+    if cfg!(windows) {
+        relative_dir.replace('/', "\\")
+    } else {
+        relative_dir.to_string()
+    }
 }
