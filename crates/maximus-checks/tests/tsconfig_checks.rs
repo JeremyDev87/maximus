@@ -6,6 +6,8 @@ use tempfile::TempDir;
 
 #[path = "../src/tsconfig.rs"]
 mod tsconfig;
+#[path = "../src/check_outcome.rs"]
+mod check_outcome;
 
 use tsconfig::run_tsconfig_check;
 
@@ -227,6 +229,26 @@ fn tsconfig_check_reports_paths_shape_type_empty_wildcard_and_missing_findings()
         }),
         "scoped package targets should bypass file existence checks"
     );
+}
+
+#[test]
+fn tsconfig_check_treats_null_paths_like_missing_paths() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("tsconfig.json"),
+        r#"{ "compilerOptions": { "paths": null } }"#,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert!(
+        outcome.findings.is_empty(),
+        "null paths should be ignored like the JS reference implementation"
+    );
+    assert!(outcome.fixes.is_empty());
+    assert!(outcome.planned_fixes.is_empty());
 }
 
 #[test]

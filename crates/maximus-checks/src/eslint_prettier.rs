@@ -1,6 +1,7 @@
 use maximus_core::{make_finding, FileKind, FindingInput, ProjectSnapshot, Severity, read_text_if_exists};
 
-use crate::registry::{package_file_for_directory, read_package_json, CheckOutcome};
+use crate::check_outcome::CheckOutcome;
+use crate::registry::{package_file_for_directory, read_package_json};
 
 const FORMATTING_RULES: &[&str] = &[
     "array-bracket-spacing",
@@ -122,6 +123,7 @@ pub fn run_eslint_prettier_check(project: &ProjectSnapshot) -> std::io::Result<C
     Ok(CheckOutcome {
         findings,
         fixes: Vec::new(),
+        planned_fixes: Vec::new(),
     })
 }
 

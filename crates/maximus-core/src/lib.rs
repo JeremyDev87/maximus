@@ -2,6 +2,7 @@
 
 pub mod discover;
 pub mod env_parser;
+pub mod fixes;
 pub mod findings;
 pub mod fs;
 pub mod jsonc;
@@ -12,6 +13,10 @@ pub use discover::{discover_project, find_nearest_package_file, get_directories,
 pub use env_parser::{
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, parse_env,
     render_env_template, EnvDuplicate, EnvEntry, InvalidEnvLine, ParsedEnv,
+};
+pub use fixes::{
+    apply_fix, apply_fixes, plan_create_env_example, plan_sync_env_example, AppliedFix,
+    FixOperation, PlannedFix,
 };
 pub use findings::{
     make_finding, serialize_audit_result, sort_findings, summarize_findings, unique_fixes,

@@ -4,9 +4,11 @@ use std::path::{Component, Path, PathBuf};
 
 use maximus_core::{
     find_nearest_package_file, get_files, make_finding, parse_jsonc, path_exists,
-    read_text_if_exists, FileKind, Finding, FindingInput, FixPlan, ProjectSnapshot, Severity,
+    read_text_if_exists, FileKind, Finding, FindingInput, ProjectSnapshot, Severity,
 };
 use serde_json::{Map, Value};
+
+use crate::check_outcome::CheckOutcome;
 
 const DEPRECATED_COMPILER_OPTIONS: &[(&str, &str)] = &[
     (
@@ -44,12 +46,6 @@ const CHECKABLE_EXTENSIONS: &[&str] = &[
     ".cjs", ".cts", ".js", ".json", ".jsx", ".mjs", ".mts", ".ts", ".tsx",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CheckOutcome {
-    pub findings: Vec<Finding>,
-    pub fixes: Vec<FixPlan>,
-}
-
 pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
 
@@ -85,6 +81,10 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
         let Some(paths_config) = compiler_options.and_then(|options| options.get("paths")) else {
             continue;
         };
+
+        if paths_config.is_null() {
+            continue;
+        }
 
         let Some(paths_config) = paths_config.as_object() else {
             findings.push(make_finding(FindingInput {
@@ -140,6 +140,7 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
     Ok(CheckOutcome {
         findings,
         fixes: Vec::new(),
+        planned_fixes: Vec::new(),
     })
 }
 
