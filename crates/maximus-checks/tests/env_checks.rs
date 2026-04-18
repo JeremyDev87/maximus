@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 
 #[path = "../src/env.rs"]
 mod env;
+#[path = "../src/check_outcome.rs"]
+mod check_outcome;
 
 use env::{render_created_env_example, render_synced_env_example, run_env_check};
-use maximus_core::{discover_project, FixPlan, Severity};
+use maximus_core::{apply_fix, discover_project, FixOperation, FixPlan, Severity};
 use tempfile::TempDir;
 
 #[test]
@@ -143,6 +145,43 @@ fn env_check_plans_example_creation_when_runtime_env_files_exist_without_contrac
         "Create apps/web/.env.example",
         &[dir.join(".env.example")],
     );
+    assert_eq!(outcome.planned_fixes.len(), 1);
+}
+
+#[test]
+fn env_sync_planned_fix_uses_audited_snapshot_text() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let example_path = fixture.path().join(".env.example");
+
+    write(fixture.path().join(".env"), "PRIMARY=1\nSECONDARY=2\n");
+    write(&example_path, "PRIMARY=\n");
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_env_check(&project).expect("check should run");
+    let planned = outcome
+        .planned_fixes
+        .iter()
+        .find(|fix| fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy()))
+        .expect("planned sync fix should exist")
+        .clone();
+
+    match &planned.operation {
+        FixOperation::SyncEnvExample {
+            existing_text,
+            missing_keys,
+            ..
+        } => {
+            assert_eq!(existing_text, "PRIMARY=\n");
+            assert_eq!(missing_keys, &vec!["SECONDARY".to_string()]);
+        }
+        _ => panic!("expected sync env example operation"),
+    }
+
+    fs::write(&example_path, "MUTATED=\n").expect("mutated example file should write");
+    apply_fix(&planned).expect("planned fix should apply");
+
+    let output = fs::read_to_string(&example_path).expect("example file should exist");
+    assert_eq!(output, "PRIMARY=\nSECONDARY=\n");
 }
 
 #[test]

@@ -2,10 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use maximus_core::{serialize_audit_result, AuditResult, SerializableAuditResult};
+use maximus_core::{serialize_audit_result, AppliedFix, AuditResult, SerializableAuditResult};
 use serde::Serialize;
-
-use crate::AppliedFix;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,7 +47,7 @@ pub fn render_fix_result(
                 id: fix.id.clone(),
                 title: fix.title.clone(),
                 files: fix.files.clone(),
-                outcome: fix.outcome.clone(),
+                outcome: Some(fix.outcome.clone()),
             })
             .collect(),
         final_result: serialize_audit_result(final_result),
@@ -60,7 +58,7 @@ pub fn render_fix_result(
 mod tests {
     use std::path::PathBuf;
 
-    use maximus_core::{AuditResult, AuditSummary, StructureReport};
+    use maximus_core::{AppliedFix, AuditResult, AuditSummary, StructureReport};
     use serde_json::Value;
 
     use super::{render_audit_result, render_fix_result};
@@ -98,11 +96,11 @@ mod tests {
             false,
             PathBuf::from("/tmp/project").as_path(),
             &result,
-            &[crate::AppliedFix {
+            &[AppliedFix {
                 id: "env-example:create:/tmp/project".to_string(),
                 title: "Create .env.example".to_string(),
                 files: vec![PathBuf::from("/tmp/project/.env.example")],
-                outcome: Some("created".to_string()),
+                outcome: "created".to_string(),
             }],
             &result,
         )

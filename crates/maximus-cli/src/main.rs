@@ -8,22 +8,12 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Command;
 
-use serde::Serialize;
+use maximus_checks::audit_project;
+use maximus_core::apply_fixes;
 
 use crate::args::{parse_args, Flags};
-
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct AppliedFix {
-    pub id: String,
-    pub title: String,
-    pub files: Vec<PathBuf>,
-    pub outcome: Option<String>,
-}
 
 #[derive(Debug)]
 enum CliError {
@@ -88,169 +78,114 @@ where
     let target_dir = resolve_target_dir(parsed.args.first().map(|value| value.as_os_str()))?;
 
     match parsed.command.as_deref() {
-        Some("audit") => delegate_to_js("audit", &target_dir, &parsed.flags),
-        Some("doctor") => delegate_to_js("doctor", &target_dir, &parsed.flags),
-        Some("fix") => delegate_to_js("fix", &target_dir, &parsed.flags),
+        Some("audit") => run_audit_command(&target_dir, &parsed.flags),
+        Some("doctor") => run_doctor_command(&target_dir, &parsed.flags),
+        Some("fix") => run_fix_command(&target_dir, &parsed.flags),
         Some(command) => Err(CliError::UnknownCommand(command.to_string())),
         None => Ok(exit_codes::SUCCESS),
     }
 }
 
-fn resolve_target_dir(path_arg: Option<&OsStr>) -> io::Result<PathBuf> {
+fn run_audit_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
+    let audited = audit_project(target_dir)?;
+
+    if flags.json {
+        println!("{}", report_json::render_audit_result(&audited.result)?);
+    } else {
+        println!("{}", report_text::format_audit_report(&audited.result));
+    }
+
+    Ok(exit_codes::audit_exit_code(&audited.result.summary))
+}
+
+fn run_doctor_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
+    let audited = audit_project(target_dir)?;
+
+    if flags.json {
+        println!("{}", report_json::render_audit_result(&audited.result)?);
+    } else {
+        println!("{}", report_text::format_doctor_report(&audited.result));
+    }
+
+    Ok(exit_codes::audit_exit_code(&audited.result.summary))
+}
+
+fn run_fix_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
+    let initial = audit_project(target_dir)?;
+    if initial.planned_fixes.len() != initial.result.fixes.len() {
+        return Err(CliError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "one or more fixes are not executable from the Rust runtime yet",
+        )));
+    }
+    let planned = initial.planned_fixes.clone();
+    let applied = if flags.dry_run {
+        Vec::new()
+    } else {
+        apply_fixes(&planned)?
+    };
+    let final_result = if flags.dry_run {
+        initial.result.clone()
+    } else {
+        audit_project(target_dir)?.result
+    };
+
+    if flags.json {
+        println!(
+            "{}",
+            report_json::render_fix_result(
+                flags.dry_run,
+                target_dir,
+                &initial.result,
+                &applied,
+                &final_result,
+            )?
+        );
+    } else {
+        println!(
+            "{}",
+            report_text::format_fix_result(
+                flags.dry_run,
+                target_dir,
+                &initial.result,
+                &applied,
+                &final_result,
+            )
+        );
+    }
+
+    Ok(exit_codes::fix_exit_code(&final_result.summary))
+}
+
+fn resolve_target_dir(path_arg: Option<&OsStr>) -> io::Result<std::path::PathBuf> {
     match path_arg {
-        Some(path) => std::path::absolute(PathBuf::from(path)),
+        Some(path) => std::path::absolute(std::path::PathBuf::from(path)),
         None => env::current_dir(),
     }
 }
 
-fn delegate_to_js(command: &str, target_dir: &Path, flags: &Flags) -> Result<i32, CliError> {
-    let mut child = Command::new("node");
-    child.arg(resolve_reference_cli_entrypoint()?);
-    child.arg(command);
-    child.arg(target_dir);
-
-    if flags.dry_run {
-        child.arg("--dry-run");
-    }
-
-    if flags.json {
-        child.arg("--json");
-    }
-
-    let output = child.output()?;
-
-    if !output.stdout.is_empty() {
-        print!("{}", String::from_utf8_lossy(&output.stdout));
-    }
-
-    if !output.stderr.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    Ok(output.status.code().unwrap_or(exit_codes::FAILURE))
-}
-
-fn resolve_reference_cli_entrypoint() -> Result<PathBuf, CliError> {
-    let search_roots = build_reference_cli_search_roots()?;
-
-    find_reference_cli_from_roots(search_roots).ok_or_else(|| {
-        CliError::Io(io::Error::new(
-            io::ErrorKind::NotFound,
-            "could not find bin/maximus.js from the current runtime context; run inside the repository checkout or set MAXIMUS_REPO_ROOT",
-        ))
-    })
-}
-
-fn build_reference_cli_search_roots() -> io::Result<Vec<PathBuf>> {
-    let mut roots = Vec::new();
-
-    if let Some(repo_root) = env::var_os("MAXIMUS_REPO_ROOT") {
-        roots.push(PathBuf::from(repo_root));
-    }
-
-    roots.extend(ancestor_paths(env::current_exe()?));
-
-    Ok(roots)
-}
-
-fn ancestor_paths(path: PathBuf) -> Vec<PathBuf> {
-    let start = if path.is_file() {
-        path.parent().map(Path::to_path_buf).unwrap_or(path)
-    } else {
-        path
-    };
-
-    start.ancestors().map(Path::to_path_buf).collect()
-}
-
-fn find_reference_cli_from_roots<I>(roots: I) -> Option<PathBuf>
-where
-    I: IntoIterator<Item = PathBuf>,
-{
-    for root in roots {
-        let candidate = root.join("bin/maximus.js");
-        if candidate.is_file() && root.join("package.json").is_file() {
-            return Some(candidate);
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::path::PathBuf;
 
-    use tempfile::tempdir;
-
-    use super::{ancestor_paths, find_reference_cli_from_roots};
+    use super::resolve_target_dir;
 
     #[test]
-    fn ancestor_paths_include_parent_chain_for_files() {
-        let path = PathBuf::from("/tmp/repo/target/debug/maximus");
-        let ancestors = ancestor_paths(path);
-
-        assert!(ancestors.contains(&PathBuf::from("/tmp/repo/target/debug")));
-        assert!(ancestors.contains(&PathBuf::from("/tmp/repo/target")));
-        assert!(ancestors.contains(&PathBuf::from("/tmp/repo")));
+    fn resolve_target_dir_uses_absolute_current_dir_by_default() {
+        let resolved = resolve_target_dir(None).expect("current dir should resolve");
+        assert!(resolved.is_absolute());
     }
 
     #[test]
-    fn reference_cli_path_is_found_from_nested_runtime_roots() {
-        let temp = tempdir().expect("temp dir should exist");
-        let repo_root = temp.path().join("repo");
-        let nested_dir = repo_root.join("target/debug/deps");
-        let bin_dir = repo_root.join("bin");
-
-        fs::create_dir_all(&nested_dir).expect("nested dir should exist");
-        fs::create_dir_all(&bin_dir).expect("bin dir should exist");
-        fs::write(repo_root.join("package.json"), "{}").expect("package.json should exist");
-        fs::write(bin_dir.join("maximus.js"), "console.log('ok');")
-            .expect("reference cli should exist");
-
-        let found = find_reference_cli_from_roots(ancestor_paths(nested_dir))
-            .expect("reference cli should be found");
-
-        assert_eq!(found, repo_root.join("bin/maximus.js"));
+    fn resolve_target_dir_makes_relative_path_absolute() {
+        let resolved = resolve_target_dir(Some(".".as_ref())).expect("path should resolve");
+        assert!(resolved.is_absolute());
     }
 
     #[test]
-    fn reference_cli_path_is_absent_when_repo_markers_are_missing() {
-        let temp = tempdir().expect("temp dir should exist");
-        let root = temp.path().join("random");
-
-        fs::create_dir_all(root.join("bin")).expect("bin dir should exist");
-        fs::write(root.join("bin/maximus.js"), "console.log('ok');")
-            .expect("script should exist");
-
-        assert!(find_reference_cli_from_roots([root]).is_none());
-    }
-
-    #[test]
-    fn search_roots_prefer_current_exe_ancestors_over_current_dir() {
-        let temp = tempdir().expect("temp dir should exist");
-        let right_repo = temp.path().join("right-repo");
-        let wrong_repo = temp.path().join("wrong-repo");
-        let exe_dir = right_repo.join("target/debug");
-
-        fs::create_dir_all(right_repo.join("bin")).expect("right bin dir should exist");
-        fs::create_dir_all(wrong_repo.join("bin")).expect("wrong bin dir should exist");
-        fs::create_dir_all(&exe_dir).expect("exe dir should exist");
-        fs::write(right_repo.join("package.json"), "{}").expect("right package.json should exist");
-        fs::write(wrong_repo.join("package.json"), "{}").expect("wrong package.json should exist");
-        fs::write(right_repo.join("bin/maximus.js"), "console.log('right');")
-            .expect("right maximus should exist");
-        fs::write(wrong_repo.join("bin/maximus.js"), "console.log('wrong');")
-            .expect("wrong maximus should exist");
-
-        let roots = ancestor_paths(exe_dir)
-            .into_iter()
-            .chain(ancestor_paths(wrong_repo.clone()))
-            .collect::<Vec<_>>();
-
-        let found = find_reference_cli_from_roots(roots).expect("reference cli should be found");
-
-        assert_eq!(found, right_repo.join("bin/maximus.js"));
+    fn resolve_target_dir_keeps_absolute_paths() {
+        let path = PathBuf::from("/tmp");
+        let resolved = resolve_target_dir(Some(path.as_os_str())).expect("path should resolve");
+        assert_eq!(resolved, path);
     }
 }

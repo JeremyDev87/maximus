@@ -31,6 +31,13 @@ const scenarios = [
     targetDir: path.join(repoRoot, "test", "fixtures", "reference-env"),
   },
   {
+    name: "reference env doctor output stays stable",
+    args: ["doctor", "./test/fixtures/reference-env"],
+    goldenFile: "env-missing-example.doctor.txt",
+    expectedStatus: 1,
+    targetDir: path.join(repoRoot, "test", "fixtures", "reference-env"),
+  },
+  {
     name: "reference env fix dry-run output stays stable",
     args: ["fix", "./test/fixtures/reference-env", "--dry-run"],
     goldenFile: "env-missing-example.fix-dry-run.txt",

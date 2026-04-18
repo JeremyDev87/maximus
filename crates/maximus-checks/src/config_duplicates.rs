@@ -1,8 +1,7 @@
 use maximus_core::{make_finding, FileKind, FindingInput, ProjectSnapshot, Severity};
 
-use crate::registry::{
-    has_object_key, package_file_for_directory, read_package_json, CheckOutcome,
-};
+use crate::check_outcome::CheckOutcome;
+use crate::registry::{has_object_key, package_file_for_directory, read_package_json};
 
 pub fn run_config_duplicate_check(project: &ProjectSnapshot) -> std::io::Result<CheckOutcome> {
     let mut findings = Vec::new();
@@ -94,6 +93,7 @@ pub fn run_config_duplicate_check(project: &ProjectSnapshot) -> std::io::Result<
     Ok(CheckOutcome {
         findings,
         fixes: Vec::new(),
+        planned_fixes: Vec::new(),
     })
 }
 

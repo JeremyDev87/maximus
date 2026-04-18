@@ -1,0 +1,15 @@
+Maximus doctor
+Target: <TARGET>
+
+Diagnosis: attention needed
+Project shape: single package, 0 package(s), 1 config file(s), 1 env folder(s)
+
+Prescription
+- Run "maximus fix" to apply 1 safe fix(es).
+- No manual follow-up is required right now.
+
+Findings
+- [warn] Missing .env.example contract
+  file: .env
+  detail: Runtime env files exist, but .env.example is missing.
+  hint: Run "maximus fix" to create a blank contract file.

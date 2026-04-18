@@ -4,19 +4,17 @@ use std::path::Path;
 
 use maximus_core::{
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, make_finding,
-    parse_env, read_text_if_exists, render_env_template, sort_findings, unique_fixes, FileKind,
-    Finding, FindingInput, FixPlan, ProjectFile, ProjectSnapshot, Severity,
+    parse_env, plan_create_env_example, plan_sync_env_example, read_text_if_exists,
+    render_env_template, sort_findings, unique_fixes, FileKind, FindingInput, FixPlan,
+    ProjectFile, ProjectSnapshot, Severity,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CheckOutcome {
-    pub findings: Vec<Finding>,
-    pub fixes: Vec<FixPlan>,
-}
+use crate::check_outcome::CheckOutcome;
 
 pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
     let mut fixes = Vec::new();
+    let mut planned_fixes = Vec::new();
 
     for directory in &project.directories {
         let env_files = directory
@@ -35,7 +33,11 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
             };
 
             let parsed = parse_env(&text, Some(&file.name));
-            parsed_records.push(ParsedEnvRecord { file, parsed });
+            parsed_records.push(ParsedEnvRecord {
+                file,
+                parsed_source_text: text,
+                parsed,
+            });
         }
 
         if parsed_records.is_empty() {
@@ -136,6 +138,11 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                 ),
                 files: vec![output_path],
             });
+            planned_fixes.push(plan_create_env_example(
+                &project.root_dir,
+                &directory.dir,
+                &contract_keys,
+            ));
         }
 
         if let Some(example_record) = example_record {
@@ -178,6 +185,12 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                     ),
                     files: vec![example_record.file.path.clone()],
                 });
+                planned_fixes.push(plan_sync_env_example(
+                    &project.root_dir,
+                    &example_record.file.path,
+                    &example_record.parsed_source_text,
+                    &missing_keys,
+                ));
             }
 
             for contract_record in &contract_records {
@@ -291,6 +304,7 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
     Ok(CheckOutcome {
         findings: sort_findings(&findings),
         fixes: unique_fixes(&fixes),
+        planned_fixes,
     })
 }
 
@@ -316,6 +330,7 @@ pub fn render_synced_env_example(existing_text: &str, missing_keys: &[String]) -
 #[derive(Debug, Clone)]
 struct ParsedEnvRecord {
     file: ProjectFile,
+    parsed_source_text: String,
     parsed: maximus_core::ParsedEnv,
 }
 

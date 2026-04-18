@@ -2,9 +2,7 @@
 
 use std::path::Path;
 
-use maximus_core::{AuditResult, StructureReport};
-
-use crate::AppliedFix;
+use maximus_core::{AppliedFix, AuditResult, StructureReport};
 
 pub fn format_help() -> String {
     [
@@ -277,9 +275,7 @@ fn relative_path_like_js(root_dir: &Path, file_path: &Path) -> Option<String> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use maximus_core::{AuditResult, AuditSummary, StructureReport};
-
-    use crate::AppliedFix;
+    use maximus_core::{AppliedFix, AuditResult, AuditSummary, StructureReport};
 
     use super::{
         format_audit_report, format_doctor_report, format_fix_result, format_help,

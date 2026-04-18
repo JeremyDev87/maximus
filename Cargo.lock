@@ -303,6 +303,7 @@ dependencies = [
 name = "maximus-cli"
 version = "0.1.0"
 dependencies = [
+ "maximus-checks",
  "maximus-core",
  "serde",
  "serde_json",
