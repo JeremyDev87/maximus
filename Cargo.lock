@@ -297,6 +297,12 @@ version = "0.1.0"
 [[package]]
 name = "maximus-cli"
 version = "0.1.0"
+dependencies = [
+ "maximus-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "maximus-core"
