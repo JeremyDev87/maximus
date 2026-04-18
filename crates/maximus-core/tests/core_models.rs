@@ -1,9 +1,9 @@
 use maximus_core::{
     discover_project, find_nearest_package_file, get_directories, get_files,
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, make_finding,
-    parse_env, parse_jsonc, render_env_template, serialize_audit_result, sort_findings,
-    summarize_findings, unique_fixes, FileKind, FindingInput, FixPlan, ProjectSnapshot, Severity,
-    StructureReport,
+    parse_env, parse_jsonc, path_exists, read_text_if_exists, render_env_template,
+    serialize_audit_result, sort_findings, summarize_findings, unique_fixes, FileKind,
+    FindingInput, FixPlan, ProjectSnapshot, Severity, StructureReport,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -98,6 +98,29 @@ fn parse_env_accepts_utf8_bom_on_the_first_line() {
     assert_eq!(parsed.invalid_lines, Vec::new());
     assert_eq!(parsed.order, vec!["API_URL".to_string()]);
     assert_eq!(parsed.values["API_URL"].value, "http://localhost:3000");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_text_if_exists_returns_none_for_inaccessible_parent_paths() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = TempDir::new().unwrap();
+    let hidden_dir = fixture.path().join("hidden");
+    let hidden_file = hidden_dir.join("config.json");
+
+    std::fs::create_dir_all(&hidden_dir).unwrap();
+    std::fs::write(&hidden_file, "{}").unwrap();
+
+    std::fs::set_permissions(&hidden_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let exists = path_exists(&hidden_file);
+    let result = read_text_if_exists(&hidden_file).unwrap();
+
+    std::fs::set_permissions(&hidden_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!exists);
+    assert_eq!(result, None);
 }
 
 #[test]
