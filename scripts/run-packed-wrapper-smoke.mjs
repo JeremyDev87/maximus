@@ -59,7 +59,11 @@ let localRegistry;
 try {
   const rootTarball = await resolveRootTarball(packJsonPath);
   const rustBinary = await ensureRustBinary();
-  const platformTarballs = await packAllPlatformPackages(tempRoot, rustBinary);
+  const platformTarballs = await packAllPlatformPackages(
+    tempRoot,
+    rustBinary,
+    platformPackage.packageName,
+  );
   localRegistry = await startLocalRegistry(platformTarballs);
   const installRoot = await installPackedPackages(tempRoot, rootTarball, {
     directoryName: "install-with-optional-runtime",
@@ -122,15 +126,17 @@ function formatUnsupportedPlatformMessage() {
   return `Packed wrapper smoke does not support ${process.platform}-${process.arch}.`;
 }
 
-async function packAllPlatformPackages(tempRoot, rustBinary) {
+async function packAllPlatformPackages(tempRoot, rustBinary, currentPlatformPackageName) {
   const tarballs = new Map();
   const platformSourceRoot = path.join(tempRoot, "platform-package-sources");
 
   for (const platformPackage of allPlatformPackages) {
     const stagedDirectory = path.join(platformSourceRoot, platformPackage.packageName);
     await cp(platformPackage.directory, stagedDirectory, { recursive: true });
-    await copyFile(rustBinary, path.join(stagedDirectory, "bin", "maximus"));
-    await chmod(path.join(stagedDirectory, "bin", "maximus"), 0o755);
+    if (platformPackage.packageName === currentPlatformPackageName) {
+      await copyFile(rustBinary, path.join(stagedDirectory, "bin", "maximus"));
+      await chmod(path.join(stagedDirectory, "bin", "maximus"), 0o755);
+    }
 
     const manifest = JSON.parse(
       await readFile(path.join(stagedDirectory, "package.json"), "utf8"),

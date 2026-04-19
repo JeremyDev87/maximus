@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, open } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
 import path from "node:path";
@@ -27,17 +27,17 @@ try {
 }
 
 async function resolveRuntime() {
+  const repoBinary = await resolveRepoBinary();
+  if (repoBinary) {
+    return { kind: "binary", command: repoBinary };
+  }
+
   const platformPackage = resolvePlatformPackage();
   if (platformPackage) {
     const installedBinary = await resolveInstalledBinary(platformPackage.packageName);
     if (installedBinary) {
       return { kind: "binary", command: installedBinary };
     }
-  }
-
-  const repoBinary = await resolveRepoBinary();
-  if (repoBinary) {
-    return { kind: "binary", command: repoBinary };
   }
 
   if (await hasJsReferenceRuntime()) {
@@ -109,6 +109,9 @@ async function resolveInstalledBinary(packageName) {
     const binaryPath = path.join(path.dirname(packageJsonPath), "bin", "maximus");
 
     await access(binaryPath);
+    if (await isPlaceholderRuntime(binaryPath)) {
+      return null;
+    }
     return binaryPath;
   } catch {
     return null;
@@ -117,8 +120,8 @@ async function resolveInstalledBinary(packageName) {
 
 async function resolveRepoBinary() {
   for (const candidate of [
-    path.join(repoRoot, "target", "release", "maximus"),
     path.join(repoRoot, "target", "debug", "maximus"),
+    path.join(repoRoot, "target", "release", "maximus"),
   ]) {
     try {
       await access(candidate);
@@ -137,6 +140,18 @@ async function hasJsReferenceRuntime() {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function isPlaceholderRuntime(binaryPath) {
+  const file = await open(binaryPath, "r");
+
+  try {
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).includes("MAXIMUS_RUST_BINARY_PLACEHOLDER");
+  } finally {
+    await file.close();
   }
 }
 
