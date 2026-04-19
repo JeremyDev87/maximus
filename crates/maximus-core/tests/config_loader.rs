@@ -99,3 +99,26 @@ fn parse_errors_include_config_path_label() {
 
     assert!(rendered.contains(&config_path.to_string_lossy().to_string()));
 }
+
+#[test]
+fn parse_errors_when_unknown_config_keys_are_present() {
+    let temp = tempdir().expect("temp dir should exist");
+    let config_path = temp.path().join("maximus.config.json");
+    fs::write(
+        &config_path,
+        r#"
+        {
+          "checks": {
+            "skp": ["env"]
+          }
+        }
+        "#,
+    )
+    .expect("config should write");
+
+    let error = load_maximus_config(temp.path()).expect_err("unknown keys should fail");
+    let rendered = error.to_string();
+
+    assert!(rendered.contains(&config_path.to_string_lossy().to_string()));
+    assert!(rendered.contains("skp"));
+}
