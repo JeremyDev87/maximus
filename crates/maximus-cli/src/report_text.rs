@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use maximus_core::{AppliedFix, AuditResult, StructureReport};
+use maximus_core::{AppliedFix, AuditResult, FixPlan, StructureReport};
 
 pub fn format_help() -> String {
     [
@@ -13,7 +13,7 @@ pub fn format_help() -> String {
         "Usage",
         "  maximus audit [path] [--json]",
         "  maximus doctor [path] [--json]",
-        "  maximus fix [path] [--dry-run] [--json]",
+        "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
         "  maximus help",
     ]
     .join("\n")
@@ -120,19 +120,30 @@ pub fn format_fix_result(
     initial: &AuditResult,
     applied: &[AppliedFix],
     final_result: &AuditResult,
+    selected_fixes: Option<&[FixPlan]>,
+    preview_report: Option<&str>,
 ) -> String {
     let mut lines = Vec::new();
     let result = if dry_run { initial } else { final_result };
+    let should_show_selected_fixes = selected_fixes.is_some_and(|fixes| !fixes.is_empty());
+    let selected_fixes = selected_fixes.unwrap_or(&[]);
 
     lines.push("Maximus fix".to_string());
     lines.push(format!("Target: {}", display_path(target_dir)));
     lines.push(String::new());
 
     if dry_run {
-        lines.push(format!(
-            "Dry run: {} safe fix(es) available.",
-            initial.summary.fixes_available
-        ));
+        if should_show_selected_fixes {
+            lines.push(format!(
+                "Dry run: {} safe fix(es) selected.",
+                selected_fixes.len()
+            ));
+        } else {
+            lines.push(format!(
+                "Dry run: {} safe fix(es) available.",
+                initial.summary.fixes_available
+            ));
+        }
     } else {
         lines.push(format!("Applied: {} fix(es).", applied.len()));
     }
@@ -146,6 +157,23 @@ pub fn format_fix_result(
                 lines.push(format!("  file: {}", display_path(file)));
             }
         }
+    }
+
+    if dry_run && should_show_selected_fixes {
+        lines.push(String::new());
+        lines.push("Planned changes".to_string());
+        for fix in selected_fixes {
+            lines.push(format!("- {}", fix.title));
+            for file in &fix.files {
+                lines.push(format!("  file: {}", display_path(file)));
+            }
+        }
+    }
+
+    if let Some(preview_report) = preview_report.filter(|report| !report.is_empty()) {
+        lines.push(String::new());
+        lines.push("Preview diffs".to_string());
+        lines.extend(preview_report.lines().map(ToString::to_string));
     }
 
     lines.push(String::new());
@@ -294,7 +322,7 @@ mod tests {
                 "Usage",
                 "  maximus audit [path] [--json]",
                 "  maximus doctor [path] [--json]",
-                "  maximus fix [path] [--dry-run] [--json]",
+                "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
                 "  maximus help",
             ]
             .join("\n")
@@ -348,7 +376,15 @@ mod tests {
         );
 
         assert_eq!(
-            format_fix_result(true, &root_dir, &result, &Vec::<AppliedFix>::new(), &result),
+            format_fix_result(
+                true,
+                &root_dir,
+                &result,
+                &Vec::<AppliedFix>::new(),
+                &result,
+                None,
+                None,
+            ),
             [
                 "Maximus fix",
                 "Target: /tmp/project",

@@ -24,7 +24,7 @@ fn no_args_prints_help() {
             "Usage",
             "  maximus audit [path] [--json]",
             "  maximus doctor [path] [--json]",
-            "  maximus fix [path] [--dry-run] [--json]",
+            "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
             "  maximus help",
             "",
         ]

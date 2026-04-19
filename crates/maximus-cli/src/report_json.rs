@@ -2,7 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use maximus_core::{serialize_audit_result, AppliedFix, AuditResult, SerializableAuditResult};
+use maximus_core::{
+    serialize_audit_result, AppliedFix, AuditResult, PreviewedFix, SerializableAuditResult,
+};
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -14,6 +16,8 @@ struct SerializableFixOutput {
     applied: Vec<SerializableAppliedFix>,
     #[serde(rename = "final")]
     final_result: SerializableAuditResult,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview: Option<Vec<SerializablePreviewedFix>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -26,6 +30,24 @@ struct SerializableAppliedFix {
     outcome: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializablePreviewedFix {
+    id: String,
+    title: String,
+    files: Vec<PathBuf>,
+    diffs: Vec<SerializablePreviewedFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializablePreviewedFile {
+    path: PathBuf,
+    existed_before: bool,
+    before: String,
+    after: String,
+}
+
 pub fn render_audit_result(result: &AuditResult) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(&serialize_audit_result(result))
 }
@@ -36,6 +58,7 @@ pub fn render_fix_result(
     initial: &AuditResult,
     applied: &[AppliedFix],
     final_result: &AuditResult,
+    preview: Option<&[PreviewedFix]>,
 ) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(&SerializableFixOutput {
         dry_run,
@@ -51,6 +74,26 @@ pub fn render_fix_result(
             })
             .collect(),
         final_result: serialize_audit_result(final_result),
+        preview: preview.map(|previews| {
+            previews
+                .iter()
+                .map(|preview| SerializablePreviewedFix {
+                    id: preview.id.clone(),
+                    title: preview.title.clone(),
+                    files: preview.files.clone(),
+                    diffs: preview
+                        .previews
+                        .iter()
+                        .map(|file| SerializablePreviewedFile {
+                            path: file.path.clone(),
+                            existed_before: file.existed_before,
+                            before: file.before.clone(),
+                            after: file.after.clone(),
+                        })
+                        .collect(),
+                })
+                .collect()
+        }),
     })
 }
 
@@ -58,7 +101,7 @@ pub fn render_fix_result(
 mod tests {
     use std::path::PathBuf;
 
-    use maximus_core::{AppliedFix, AuditResult, AuditSummary, StructureReport};
+    use maximus_core::{AppliedFix, AuditResult, AuditSummary, PreviewedFix, StructureReport};
     use serde_json::Value;
 
     use super::{render_audit_result, render_fix_result};
@@ -78,8 +121,15 @@ mod tests {
     #[test]
     fn fix_json_keeps_js_top_level_keys() {
         let result = sample_result(PathBuf::from("/tmp/project"));
-        let json = render_fix_result(true, PathBuf::from("/tmp/project").as_path(), &result, &[], &result)
-            .expect("fix json should render");
+        let json = render_fix_result(
+            true,
+            PathBuf::from("/tmp/project").as_path(),
+            &result,
+            &[],
+            &result,
+            None,
+        )
+        .expect("fix json should render");
         let value: Value = serde_json::from_str(&json).expect("fix json should parse");
 
         assert_eq!(value["dryRun"], true);
@@ -103,11 +153,40 @@ mod tests {
                 outcome: "created".to_string(),
             }],
             &result,
+            None,
         )
         .expect("fix json should render");
         let value: Value = serde_json::from_str(&json).expect("fix json should parse");
 
         assert_eq!(value["applied"][0]["outcome"], "created");
+    }
+
+    #[test]
+    fn fix_json_includes_preview_when_requested() {
+        let result = sample_result(PathBuf::from("/tmp/project"));
+        let json = render_fix_result(
+            true,
+            PathBuf::from("/tmp/project").as_path(),
+            &result,
+            &[],
+            &result,
+            Some(&[PreviewedFix {
+                id: "env-example:create:/tmp/project".to_string(),
+                title: "Create .env.example".to_string(),
+                files: vec![PathBuf::from("/tmp/project/.env.example")],
+                previews: vec![maximus_core::FixFilePreview {
+                    path: PathBuf::from("/tmp/project/.env.example"),
+                    existed_before: false,
+                    before: String::new(),
+                    after: "API_URL=\n".to_string(),
+                }],
+            }]),
+        )
+        .expect("fix json should render");
+        let value: Value = serde_json::from_str(&json).expect("fix json should parse");
+
+        assert_eq!(value["preview"][0]["id"], "env-example:create:/tmp/project");
+        assert_eq!(value["preview"][0]["diffs"][0]["after"], "API_URL=\n");
     }
 
     fn sample_result(root_dir: PathBuf) -> AuditResult {
