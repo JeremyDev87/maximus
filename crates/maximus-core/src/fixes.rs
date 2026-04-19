@@ -2,8 +2,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::env_parser::render_env_template;
-use crate::fs::write_text;
+use crate::fs::{read_text_if_exists, write_text};
 use crate::models::FixPlan;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FixSelector {
+    pub ids: Vec<String>,
+    pub prefixes: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FixOperation {
@@ -30,6 +36,22 @@ pub struct AppliedFix {
     pub title: String,
     pub files: Vec<PathBuf>,
     pub outcome: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixFilePreview {
+    pub path: PathBuf,
+    pub existed_before: bool,
+    pub before: String,
+    pub after: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewedFix {
+    pub id: String,
+    pub title: String,
+    pub files: Vec<PathBuf>,
+    pub previews: Vec<FixFilePreview>,
 }
 
 pub fn plan_create_env_example(
@@ -118,6 +140,26 @@ pub fn apply_fixes(fixes: &[PlannedFix]) -> io::Result<Vec<AppliedFix>> {
     fixes.iter().map(apply_fix).collect()
 }
 
+pub fn select_fix_plans(fixes: &[FixPlan], selector: &FixSelector) -> Vec<FixPlan> {
+    fixes
+        .iter()
+        .filter(|fix| selector.matches(&fix.id))
+        .cloned()
+        .collect()
+}
+
+pub fn select_planned_fixes(fixes: &[PlannedFix], selector: &FixSelector) -> Vec<PlannedFix> {
+    fixes
+        .iter()
+        .filter(|fix| selector.matches(&fix.public.id))
+        .cloned()
+        .collect()
+}
+
+pub fn preview_fixes(fixes: &[PlannedFix]) -> io::Result<Vec<PreviewedFix>> {
+    fixes.iter().map(preview_fix).collect()
+}
+
 fn relative_or_fallback(root_dir: &Path, target_path: &Path, fallback: &str) -> String {
     target_path
         .strip_prefix(root_dir)
@@ -134,4 +176,65 @@ fn applied_fix_from_public(fix: &FixPlan, outcome: &str) -> AppliedFix {
         files: fix.files.clone(),
         outcome: outcome.to_string(),
     }
+}
+
+impl FixSelector {
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty() && self.prefixes.is_empty()
+    }
+
+    pub fn matches(&self, fix_id: &str) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        self.ids.iter().any(|id| id == fix_id)
+            || self
+                .prefixes
+                .iter()
+                .any(|prefix| fix_id.starts_with(prefix))
+    }
+}
+
+fn preview_fix(fix: &PlannedFix) -> io::Result<PreviewedFix> {
+    let previews = match &fix.operation {
+        FixOperation::CreateEnvExample { output_path, keys } => {
+            let before = read_text_if_exists(output_path)?.unwrap_or_default();
+            let existed_before = output_path.exists();
+            let after = render_env_template(keys.iter().map(|key| key.as_str()));
+
+            vec![FixFilePreview {
+                path: output_path.clone(),
+                existed_before,
+                before,
+                after,
+            }]
+        }
+        FixOperation::SyncEnvExample {
+            example_path,
+            existing_text,
+            missing_keys,
+        } => {
+            let prefix = if existing_text.ends_with('\n') || existing_text.is_empty() {
+                ""
+            } else {
+                "\n"
+            };
+            let addition = render_env_template(missing_keys.iter().map(|key| key.as_str()));
+
+            vec![FixFilePreview {
+                path: example_path.clone(),
+                existed_before: true,
+                before: existing_text.clone(),
+                after: format!("{existing_text}{prefix}{addition}"),
+            }]
+        }
+    };
+
+    Ok(PreviewedFix {
+        id: fix.public.id.clone(),
+        title: fix.public.title.clone(),
+        files: fix.public.files.clone(),
+        previews,
+    })
 }

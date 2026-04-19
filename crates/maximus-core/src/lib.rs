@@ -21,8 +21,9 @@ pub use env_parser::{
     render_env_template, EnvDuplicate, EnvEntry, InvalidEnvLine, ParsedEnv,
 };
 pub use fixes::{
-    apply_fix, apply_fixes, plan_create_env_example, plan_sync_env_example, AppliedFix,
-    FixOperation, PlannedFix,
+    apply_fix, apply_fixes, plan_create_env_example, plan_sync_env_example, preview_fixes,
+    select_fix_plans, select_planned_fixes, AppliedFix, FixFilePreview, FixOperation,
+    FixSelector, PlannedFix, PreviewedFix,
 };
 pub use findings::{
     make_finding, serialize_audit_result, sort_findings, summarize_findings, unique_fixes,
