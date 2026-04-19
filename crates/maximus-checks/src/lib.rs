@@ -4,6 +4,7 @@ mod check_outcome;
 mod config_duplicates;
 mod env;
 mod eslint_prettier;
+pub mod lockfiles;
 pub mod structure;
 mod tsconfig;
 pub mod registry;

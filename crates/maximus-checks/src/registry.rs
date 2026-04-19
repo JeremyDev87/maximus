@@ -11,6 +11,7 @@ use crate::{
     build_structure_report, run_config_duplicate_check, run_env_check, run_eslint_prettier_check,
     run_tsconfig_check,
 };
+use crate::lockfiles::run_lockfiles_check;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditedProject {
@@ -25,6 +26,7 @@ pub fn run_registered_checks(project: &ProjectSnapshot) -> std::io::Result<Check
         run_env_check(project)?,
         run_eslint_prettier_check(project)?,
         run_tsconfig_check(project)?,
+        run_lockfiles_check(project)?,
     ];
 
     Ok(merge_outcomes(outcomes))
