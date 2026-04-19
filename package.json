@@ -9,10 +9,15 @@
   },
   "files": [
     "bin",
-    "src",
     "README.md",
     "LICENSE"
   ],
+  "optionalDependencies": {
+    "maximus-darwin-arm64": "0.1.0",
+    "maximus-darwin-x64": "0.1.0",
+    "maximus-linux-arm64-gnu": "0.1.0",
+    "maximus-linux-x64-gnu": "0.1.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/JeremyDev87/maximus.git"
