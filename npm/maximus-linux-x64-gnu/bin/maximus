@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+echo "This package is a placeholder for the linux-x64-gnu Maximus Rust binary. The release pipeline replaces bin/maximus with the compiled executable." >&2
+exit 1
