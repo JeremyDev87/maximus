@@ -8,6 +8,8 @@ on:
       - "rust-toolchain.toml"
       - "bin/**"
       - "crates/**"
+      - "npm/**"
+      - "scripts/**"
       - "src/**"
       - "test/**"
       - ".github/workflows/dev.yml"
@@ -26,6 +28,8 @@ on:
       - "rust-toolchain.toml"
       - "bin/**"
       - "crates/**"
+      - "npm/**"
+      - "scripts/**"
       - "src/**"
       - "test/**"
       - ".github/workflows/dev.yml"
@@ -163,14 +167,13 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
       - name: Pack package
         run: |
           env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm pack --json > pack.json
-          node -e "const fs=require('node:fs'); const pack=JSON.parse(fs.readFileSync('pack.json','utf8')); console.log(pack[0].filename);" > tarball.txt
 
       - name: Smoke test packaged CLI entrypoint
         run: |
-          tarball="$(cat tarball.txt)"
-          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus audit ./test/fixtures/clean-project
-          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus doctor ./test/fixtures/clean-project
-          env npm_config_cache="$RUNNER_TEMP/.npm-cache" npm exec --yes --package "./$tarball" -- maximus fix ./test/fixtures/clean-project --dry-run
+          node ./scripts/run-packed-wrapper-smoke.mjs ./pack.json ./test/fixtures/clean-project

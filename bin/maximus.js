@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { constants as osConstants } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -27,13 +28,11 @@ try {
 
 async function resolveRuntime() {
   const platformPackage = resolvePlatformPackage();
-  if (!platformPackage) {
-    throw new Error(formatUnsupportedPlatformMessage());
-  }
-
-  const installedBinary = await resolveInstalledBinary(platformPackage.packageName);
-  if (installedBinary) {
-    return { kind: "binary", command: installedBinary };
+  if (platformPackage) {
+    const installedBinary = await resolveInstalledBinary(platformPackage.packageName);
+    if (installedBinary) {
+      return { kind: "binary", command: installedBinary };
+    }
   }
 
   const repoBinary = await resolveRepoBinary();
@@ -41,17 +40,15 @@ async function resolveRuntime() {
     return { kind: "binary", command: repoBinary };
   }
 
-  if (await hasRepoJsReference()) {
+  if (await hasJsReferenceRuntime()) {
     return { kind: "js" };
   }
 
-  throw new Error(
-    [
-      `No runtime is available for ${platformPackage.label}.`,
-      `Expected optional dependency "${platformPackage.packageName}" to be installed.`,
-      "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
-    ].join(" "),
-  );
+  if (!platformPackage) {
+    throw new Error(formatUnsupportedPlatformMessage());
+  }
+
+  throw new Error(formatMissingRuntimeMessage(platformPackage));
 }
 
 function resolvePlatformPackage() {
@@ -134,13 +131,21 @@ async function resolveRepoBinary() {
   return null;
 }
 
-async function hasRepoJsReference() {
+async function hasJsReferenceRuntime() {
   try {
     await access(path.join(repoRoot, "src", "cli.js"));
     return true;
   } catch {
     return false;
   }
+}
+
+function formatMissingRuntimeMessage(platformPackage) {
+  return [
+    `No runtime is available for ${platformPackage.label}.`,
+    `Expected optional dependency "${platformPackage.packageName}" to be installed.`,
+    "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
+  ].join(" ");
 }
 
 async function runBinary(command, args) {
@@ -155,7 +160,8 @@ async function runBinary(command, args) {
 
     child.on("exit", (code, signal) => {
       if (signal) {
-        reject(new Error(`Rust CLI terminated with signal ${signal}.`));
+        process.exitCode = signalExitCode(signal);
+        resolve();
         return;
       }
 
@@ -169,4 +175,9 @@ async function runJsReference(args) {
   const { runCli } = await import("../src/cli.js");
   await runCli(args);
   process.exitCode = process.exitCode ?? 0;
+}
+
+function signalExitCode(signal) {
+  const signalNumber = osConstants.signals?.[signal];
+  return typeof signalNumber === "number" ? 128 + signalNumber : 1;
 }
