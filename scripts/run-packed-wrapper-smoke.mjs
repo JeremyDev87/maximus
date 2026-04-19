@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const allPlatformPackages = [
+  {
+    packageName: "maximus-darwin-arm64",
+    directory: path.join(repoRoot, "npm", "maximus-darwin-arm64"),
+    platform: "darwin",
+    arch: "arm64",
+  },
+  {
+    packageName: "maximus-darwin-x64",
+    directory: path.join(repoRoot, "npm", "maximus-darwin-x64"),
+    platform: "darwin",
+    arch: "x64",
+  },
+  {
+    packageName: "maximus-linux-arm64-gnu",
+    directory: path.join(repoRoot, "npm", "maximus-linux-arm64-gnu"),
+    platform: "linux",
+    arch: "arm64",
+    libc: "glibc",
+  },
+  {
+    packageName: "maximus-linux-x64-gnu",
+    directory: path.join(repoRoot, "npm", "maximus-linux-x64-gnu"),
+    platform: "linux",
+    arch: "x64",
+    libc: "glibc",
+  },
+];
 
 const [packJsonPath, fixtureArg] = process.argv.slice(2);
 
@@ -25,26 +55,32 @@ if (!platformPackage) {
 }
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-packed-wrapper-"));
+let localRegistry;
 try {
   const rootTarball = await resolveRootTarball(packJsonPath);
-  const platformTarball = await packPlatformPackage(tempRoot, platformPackage.directory);
   const rustBinary = await ensureRustBinary();
-  const installRoot = await installPackedPackages(
-    tempRoot,
-    rootTarball,
-    platformTarball,
-    platformPackage.packageName,
-  );
+  const platformTarballs = await packAllPlatformPackages(tempRoot, rustBinary);
+  localRegistry = await startLocalRegistry(platformTarballs);
+  const installRoot = await installPackedPackages(tempRoot, rootTarball, {
+    directoryName: "install-with-optional-runtime",
+    registryUrl: localRegistry.url,
+  });
 
-  await patchInstalledBinary(installRoot, platformPackage.packageName, rustBinary);
+  await removeJsFallback(installRoot);
+  await runScenario(installRoot);
 
-  const wrapper = path.join(installRoot, "node_modules", "maximus", "bin", "maximus.js");
-  runWrapper(wrapper, ["audit", fixtureDir], installRoot);
-  runWrapper(wrapper, ["doctor", fixtureDir], installRoot);
-  runWrapper(wrapper, ["fix", fixtureDir, "--dry-run"], installRoot);
+  const omitOptionalInstallRoot = await installPackedPackages(tempRoot, rootTarball, {
+    directoryName: "install-without-optional-runtime",
+    omitOptional: true,
+  });
+
+  await runScenario(omitOptionalInstallRoot);
 
   console.log(`Packed wrapper smoke passed via ${path.basename(rootTarball)}.`);
 } finally {
+  if (localRegistry) {
+    await localRegistry.close();
+  }
   await rm(tempRoot, { recursive: true, force: true });
 }
 
@@ -59,35 +95,19 @@ async function resolveRootTarball(jsonPath) {
 }
 
 function resolvePlatformPackage() {
-  if (process.platform === "darwin" && process.arch === "arm64") {
-    return {
-      packageName: "maximus-darwin-arm64",
-      directory: path.join(repoRoot, "npm", "maximus-darwin-arm64"),
-    };
-  }
+  return (
+    allPlatformPackages.find((candidate) => {
+      if (candidate.platform !== process.platform || candidate.arch !== process.arch) {
+        return false;
+      }
 
-  if (process.platform === "darwin" && process.arch === "x64") {
-    return {
-      packageName: "maximus-darwin-x64",
-      directory: path.join(repoRoot, "npm", "maximus-darwin-x64"),
-    };
-  }
+      if (candidate.libc === "glibc") {
+        return hasGlibcRuntime();
+      }
 
-  if (process.platform === "linux" && process.arch === "arm64" && hasGlibcRuntime()) {
-    return {
-      packageName: "maximus-linux-arm64-gnu",
-      directory: path.join(repoRoot, "npm", "maximus-linux-arm64-gnu"),
-    };
-  }
-
-  if (process.platform === "linux" && process.arch === "x64" && hasGlibcRuntime()) {
-    return {
-      packageName: "maximus-linux-x64-gnu",
-      directory: path.join(repoRoot, "npm", "maximus-linux-x64-gnu"),
-    };
-  }
-
-  return null;
+      return true;
+    }) ?? null
+  );
 }
 
 function hasGlibcRuntime() {
@@ -102,46 +122,170 @@ function formatUnsupportedPlatformMessage() {
   return `Packed wrapper smoke does not support ${process.platform}-${process.arch}.`;
 }
 
-async function packPlatformPackage(tempRoot, packageDir) {
-  const packOutput = runCommand(
-    "npm",
-    ["pack", "--json", "--pack-destination", tempRoot],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        npm_config_cache: path.join(tempRoot, ".npm-cache"),
+async function packAllPlatformPackages(tempRoot, rustBinary) {
+  const tarballs = new Map();
+  const platformSourceRoot = path.join(tempRoot, "platform-package-sources");
+
+  for (const platformPackage of allPlatformPackages) {
+    const stagedDirectory = path.join(platformSourceRoot, platformPackage.packageName);
+    await cp(platformPackage.directory, stagedDirectory, { recursive: true });
+    await copyFile(rustBinary, path.join(stagedDirectory, "bin", "maximus"));
+    await chmod(path.join(stagedDirectory, "bin", "maximus"), 0o755);
+
+    const manifest = JSON.parse(
+      await readFile(path.join(stagedDirectory, "package.json"), "utf8"),
+    );
+    const packOutput = runCommand(
+      "npm",
+      ["pack", "--json", "--pack-destination", tempRoot],
+      {
+        cwd: stagedDirectory,
+        env: {
+          ...process.env,
+          npm_config_cache: path.join(tempRoot, ".npm-cache"),
+        },
+        encoding: "utf8",
       },
-      encoding: "utf8",
-    },
-  );
-  const packResult = JSON.parse(packOutput.stdout);
-  const filename = packResult[0]?.filename;
+    );
+    const packResult = JSON.parse(packOutput.stdout);
+    const filename = packResult[0]?.filename;
 
-  assert.equal(typeof filename, "string", "platform npm pack JSON must include filename");
+    assert.equal(typeof filename, "string", "platform npm pack JSON must include filename");
+    tarballs.set(platformPackage.packageName, {
+      filename,
+      manifest,
+      tarballPath: path.join(tempRoot, filename),
+    });
+  }
 
-  return path.join(tempRoot, filename);
+  return tarballs;
 }
 
-async function installPackedPackages(tempRoot, rootTarball, platformTarball, platformPackageName) {
-  const installRoot = path.join(tempRoot, "install");
-  const nodeModulesRoot = path.join(installRoot, "node_modules");
+async function installPackedPackages(tempRoot, rootTarball, options = {}) {
+  const installRoot = path.join(tempRoot, options.directoryName ?? "install");
+  const dependencies = {
+    maximus: `file:${rootTarball}`,
+  };
 
-  await mkdir(nodeModulesRoot, { recursive: true });
-
-  await unpackTarball(rootTarball, path.join(tempRoot, "root-extract"));
-  await unpackTarball(platformTarball, path.join(tempRoot, "platform-extract"));
-
-  await rename(
-    path.join(tempRoot, "root-extract", "package"),
-    path.join(nodeModulesRoot, "maximus"),
+  await mkdir(installRoot, { recursive: true });
+  await writeFile(
+    path.join(installRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "maximus-wrapper-smoke",
+        private: true,
+        dependencies,
+      },
+      null,
+      2,
+    ),
+    "utf8",
   );
-  await rename(
-    path.join(tempRoot, "platform-extract", "package"),
-    path.join(nodeModulesRoot, platformPackageName),
-  );
+
+  const installArgs = ["install", "--no-package-lock"];
+  if (options.omitOptional) {
+    installArgs.push("--offline", "--omit=optional");
+  }
+
+  await runCommandAsync("npm", installArgs, {
+    cwd: installRoot,
+    env: {
+      ...process.env,
+      npm_config_cache: path.join(tempRoot, ".npm-cache"),
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+      npm_config_update_notifier: "false",
+      ...(options.registryUrl ? { npm_config_registry: options.registryUrl } : {}),
+    },
+    encoding: "utf8",
+  });
 
   return installRoot;
+}
+
+async function startLocalRegistry(platformTarballs) {
+  const server = createServer((request, response) => {
+    if (!request.url) {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+
+    const url = new URL(request.url, "http://127.0.0.1");
+    if (process.env.MAXIMUS_WRAPPER_SMOKE_DEBUG === "1") {
+      console.error(`[wrapper-smoke-registry] ${request.method} ${url.pathname}`);
+    }
+
+    if (url.pathname === "/-/ping") {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(request.method === "HEAD" ? undefined : JSON.stringify({ ok: true }));
+      return;
+    }
+
+    const packageName = decodeURIComponent(url.pathname.slice(1));
+    const packageEntry = platformTarballs.get(packageName);
+
+    if (packageEntry && (request.method === "GET" || request.method === "HEAD")) {
+      const tarballUrl = `/tarballs/${packageEntry.filename}`;
+      const body = JSON.stringify({
+        name: packageEntry.manifest.name,
+        "dist-tags": {
+          latest: packageEntry.manifest.version,
+        },
+        versions: {
+          [packageEntry.manifest.version]: {
+            ...packageEntry.manifest,
+            dist: {
+              tarball: `http://127.0.0.1:${server.address().port}${tarballUrl}`,
+            },
+          },
+        },
+      });
+
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(request.method === "HEAD" ? undefined : body);
+      return;
+    }
+
+    const tarballEntry = [...platformTarballs.values()].find(
+      (candidate) => url.pathname === `/tarballs/${candidate.filename}`,
+    );
+    if (tarballEntry && (request.method === "GET" || request.method === "HEAD")) {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/octet-stream");
+      if (request.method === "HEAD") {
+        response.end();
+      } else {
+        createReadStream(tarballEntry.tarballPath).pipe(response);
+      }
+      return;
+    }
+
+    response.statusCode = 404;
+    response.end();
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      }),
+  };
 }
 
 async function ensureRustBinary() {
@@ -158,29 +302,29 @@ async function ensureRustBinary() {
   return debugBinary;
 }
 
-async function patchInstalledBinary(installRoot, packageName, rustBinary) {
-  const installedBinary = path.join(installRoot, "node_modules", packageName, "bin", "maximus");
-  await copyFile(rustBinary, installedBinary);
-  await chmod(installedBinary, 0o755);
+async function runScenario(installRoot) {
+  await runWrapper(["audit", fixtureDir], installRoot);
+  await runWrapper(["doctor", fixtureDir], installRoot);
+  await runWrapper(["fix", fixtureDir, "--dry-run"], installRoot);
 }
 
-async function unpackTarball(tarball, destination) {
-  await mkdir(destination, { recursive: true });
-  runCommand("tar", ["-xzf", tarball, "-C", destination], {
-    cwd: repoRoot,
-    encoding: "utf8",
+async function removeJsFallback(installRoot) {
+  await rm(path.join(installRoot, "node_modules", "maximus", "src"), {
+    recursive: true,
+    force: true,
   });
 }
 
-function runWrapper(wrapper, args, cwd) {
-  const result = spawnSync(process.execPath, [wrapper, ...args], {
+async function runWrapper(args, cwd) {
+  const wrapperPath = path.join(cwd, "node_modules", ".bin", "maximus");
+  await runCommandAsync(wrapperPath, args, {
     cwd,
     encoding: "utf8",
+    env: {
+      ...process.env,
+      npm_config_cache: path.join(cwd, ".npm-cache"),
+    },
   });
-
-  if (result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || `wrapper command failed: ${args.join(" ")}`);
-  }
 }
 
 function runCommand(command, args, options) {
@@ -193,4 +337,43 @@ function runCommand(command, args, options) {
   }
 
   return result;
+}
+
+async function runCommandAsync(command, args, options) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+
+    if (options.encoding === "utf8") {
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+    }
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || stdout || `${command} ${args.join(" ")} failed`));
+        return;
+      }
+
+      resolve({
+        stdout,
+        stderr,
+      });
+    });
+  });
 }
