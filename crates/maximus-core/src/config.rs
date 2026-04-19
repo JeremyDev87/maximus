@@ -9,6 +9,7 @@ use crate::{parse_jsonc, read_text_if_exists, ParseJsoncError};
 const CONFIG_FILE_NAMES: [&str; 2] = ["maximus.config.json", ".maximusrc.json"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaximusConfig {
     #[serde(default)]
     pub checks: CheckFilterConfig,
@@ -21,6 +22,7 @@ pub struct MaximusConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CheckFilterConfig {
     #[serde(default)]
     pub only: Vec<String>,
@@ -46,6 +48,7 @@ pub enum FailOnLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReportConfig {
     #[serde(default, rename = "failOn")]
     pub fail_on: Option<FailOnLevel>,
