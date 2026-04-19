@@ -4,6 +4,7 @@
 
 - 루트 `maximus` npm package를 thin launcher로 유지하면서 실제 실행은 Rust binary로 위임한다.
 - 플랫폼별 binary package를 optional dependency로 두고, hard cutover 전까지는 packed install과 repo 개발 환경 모두에서 reference runtime fallback을 허용한다.
+- placeholder platform package가 잘못 publish되더라도 hard cutover 전에는 wrapper가 이를 무시하고 JS reference runtime으로 fallback한다.
 
 ## 런타임 선택 순서
 
@@ -12,10 +13,12 @@
    - `maximus-darwin-x64`
    - `maximus-linux-arm64-gnu`
    - `maximus-linux-x64-gnu`
-2. 설치된 platform package가 있으면 그 안의 `bin/maximus` Rust binary를 바로 실행한다.
-3. repository 안에서 실행 중이고 `target/release/maximus` 또는 `target/debug/maximus`가 있으면 그 binary를 사용한다.
-4. hard cutover 전까지 설치된 root package 안의 `src/cli.js` reference runtime으로 fallback한다.
-5. 위 경로가 모두 없을 때만 wrapper가 실패한다.
+2. repository 안에서 실행 중이고 `target/debug/maximus`가 있으면 그 binary를 사용한다.
+3. `target/debug/maximus`가 없고 `target/release/maximus`가 있으면 그 binary를 사용한다.
+4. repository local binary가 없고 설치된 platform package가 있으면 그 안의 `bin/maximus` Rust binary를 실행한다.
+   - 단, placeholder marker(`MAXIMUS_RUST_BINARY_PLACEHOLDER`)가 있으면 실행하지 않고 다음 후보로 넘어간다.
+5. hard cutover 전까지 설치된 root package 안의 `src/cli.js` reference runtime으로 fallback한다.
+6. 위 경로가 모두 없을 때만 wrapper가 실패한다.
 
 ## unsupported 정책
 
@@ -43,6 +46,7 @@
 - repository에 체크인된 `bin/maximus`는 placeholder다.
   - 실제 release pipeline은 이 파일을 플랫폼별 Rust executable로 교체해 publish한다.
   - local smoke에서는 helper script가 임시 platform package 복사본에 로컬 Rust binary를 주입한 뒤 pack/install 한다.
+  - wrapper는 placeholder marker가 남아 있으면 그 package를 실행 가능한 runtime으로 취급하지 않는다.
 
 ## local smoke
 
