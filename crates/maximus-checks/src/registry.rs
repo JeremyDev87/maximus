@@ -12,6 +12,7 @@ use crate::{
     run_tsconfig_check,
 };
 use crate::lockfiles::run_lockfiles_check;
+use crate::package_entrypoints::run_package_entrypoints_check;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditedProject {
@@ -27,6 +28,7 @@ pub fn run_registered_checks(project: &ProjectSnapshot) -> std::io::Result<Check
         run_eslint_prettier_check(project)?,
         run_tsconfig_check(project)?,
         run_lockfiles_check(project)?,
+        run_package_entrypoints_check(project)?,
     ];
 
     Ok(merge_outcomes(outcomes))

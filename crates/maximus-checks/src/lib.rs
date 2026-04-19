@@ -5,6 +5,7 @@ mod config_duplicates;
 mod env;
 mod eslint_prettier;
 pub mod lockfiles;
+pub mod package_entrypoints;
 pub mod structure;
 mod tsconfig;
 pub mod registry;
