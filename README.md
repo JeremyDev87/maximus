@@ -85,6 +85,22 @@ Findings
   hint: Run `maximus fix` to create a blank contract file.
 ```
 
+## GitHub Action
+
+릴리즈 태그 이후에는 같은 npm wrapper 진입점을 GitHub Action으로도 사용할 수 있습니다.
+
+```yaml
+- uses: JeremyDev87/maximus@v0
+  with:
+    command: audit
+    path: .
+```
+
+기본 입력:
+
+- `command`: `audit`, `doctor`, `fix`
+- `path`: 검사할 프로젝트 경로, 기본값 `.`
+
 ## 로컬 개발
 
 ```bash

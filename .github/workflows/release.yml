@@ -1,0 +1,127 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-platform-binaries:
+    name: Build platform binaries
+    uses: ./.github/workflows/rust-release-binaries.yml
+
+  publish-platform-packages:
+    name: Publish platform package (${{ matrix.package_name }})
+    needs: build-platform-binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package_name:
+          - maximus-darwin-arm64
+          - maximus-darwin-x64
+          - maximus-linux-arm64-gnu
+          - maximus-linux-x64-gnu
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Download Rust release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.package_name }}
+          path: ${{ runner.temp }}/${{ matrix.package_name }}
+
+      - name: Inject Rust binary into platform package
+        shell: bash
+        run: |
+          cp "${RUNNER_TEMP}/${{ matrix.package_name }}/maximus" "./npm/${{ matrix.package_name }}/bin/maximus"
+          chmod +x "./npm/${{ matrix.package_name }}/bin/maximus"
+
+      - name: Publish platform package
+        run: npm publish "./npm/${{ matrix.package_name }}" --access public
+
+  publish-wrapper:
+    name: Publish npm wrapper
+    needs: publish-platform-packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish root wrapper package
+        run: npm publish . --access public
+
+  smoke-published-wrapper:
+    name: Smoke published wrapper
+    needs: publish-wrapper
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Read package version
+        id: package_version
+        shell: bash
+        run: |
+          version=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install published wrapper
+        shell: bash
+        run: |
+          install_root="$RUNNER_TEMP/maximus-release-smoke"
+          rm -rf "$install_root"
+          mkdir -p "$install_root"
+          export npm_config_cache="$RUNNER_TEMP/.npm-cache"
+          export npm_config_audit=false
+          export npm_config_fund=false
+          export npm_config_update_notifier=false
+          npm install --no-package-lock --prefix "$install_root" "maximus@${{ steps.package_version.outputs.value }}"
+
+      - name: Smoke published wrapper audit
+        shell: bash
+        run: |
+          install_root="$RUNNER_TEMP/maximus-release-smoke"
+          node "$install_root/node_modules/maximus/bin/maximus.js" audit ./test/fixtures/clean-project
+
+  action-smoke:
+    name: Smoke official GitHub Action
+    needs:
+      - publish-platform-packages
+      - publish-wrapper
+    uses: ./.github/workflows/action-smoke.yml

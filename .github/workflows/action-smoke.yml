@@ -1,0 +1,54 @@
+name: action-smoke
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        required: false
+        type: string
+        default: audit
+      path:
+        required: false
+        type: string
+        default: test/fixtures/clean-project
+      registry_url:
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Maximus command to run
+        required: false
+        default: audit
+        type: string
+      path:
+        description: Project path to inspect
+        required: false
+        default: test/fixtures/clean-project
+        type: string
+      registry_url:
+        description: Optional npm registry override
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Action smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run Maximus action
+        uses: ./
+        with:
+          command: ${{ inputs.command }}
+          path: ${{ inputs.path }}
+          registry-url: ${{ inputs.registry_url }}
