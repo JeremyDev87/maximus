@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import { resolvePackedWrapperLaunch } from "./lib/packed-wrapper-launch.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -322,8 +323,8 @@ async function removeJsFallback(installRoot) {
 }
 
 async function runWrapper(args, cwd) {
-  const wrapperPath = path.join(cwd, "node_modules", ".bin", "maximus");
-  await runCommandAsync(wrapperPath, args, {
+  const launch = await resolvePackedWrapperLaunch(cwd);
+  await runCommandAsync(launch.command, [...launch.args, ...args], {
     cwd,
     encoding: "utf8",
     env: {
