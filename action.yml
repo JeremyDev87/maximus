@@ -25,6 +25,8 @@ runs:
 
     - name: Install Maximus wrapper from this action ref
       shell: bash
+      env:
+        MAXIMUS_REGISTRY_URL: ${{ inputs.registry-url }}
       run: |
         install_root="$RUNNER_TEMP/maximus-action"
         rm -rf "$install_root"
@@ -35,14 +37,23 @@ runs:
         export npm_config_fund=false
         export npm_config_update_notifier=false
 
-        if [[ -n "${{ inputs.registry-url }}" ]]; then
-          export npm_config_registry="${{ inputs.registry-url }}"
+        if [[ -n "$MAXIMUS_REGISTRY_URL" ]]; then
+          export npm_config_registry="$MAXIMUS_REGISTRY_URL"
         fi
 
         npm install --no-package-lock --prefix "$install_root" "$GITHUB_ACTION_PATH"
 
-    - name: Run Maximus
+    - name: Assert native runtime is installed
       shell: bash
       run: |
         install_root="$RUNNER_TEMP/maximus-action"
-        node "$install_root/node_modules/maximus/bin/maximus.js" "${{ inputs.command }}" "${{ inputs.path }}"
+        node "$GITHUB_ACTION_PATH/scripts/assert-installed-native-runtime.mjs" "$install_root"
+
+    - name: Run Maximus
+      shell: bash
+      env:
+        MAXIMUS_COMMAND: ${{ inputs.command }}
+        MAXIMUS_TARGET_PATH: ${{ inputs.path }}
+      run: |
+        install_root="$RUNNER_TEMP/maximus-action"
+        node "$install_root/node_modules/maximus/bin/maximus.js" "$MAXIMUS_COMMAND" "$MAXIMUS_TARGET_PATH"
