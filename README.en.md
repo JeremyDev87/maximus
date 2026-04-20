@@ -85,6 +85,22 @@ Findings
   hint: Run `maximus fix` to create a blank contract file.
 ```
 
+## GitHub Action
+
+After the release tags are published, you can use the same npm-wrapper entrypoint from GitHub Actions as well.
+
+```yaml
+- uses: JeremyDev87/maximus@v0
+  with:
+    command: audit
+    path: .
+```
+
+Default inputs:
+
+- `command`: `audit`, `doctor`, `fix`
+- `path`: project path to inspect, default `.`
+
 ## Local Development
 
 ```bash

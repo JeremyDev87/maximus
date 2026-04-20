@@ -3,6 +3,7 @@ name: maximus-dev
 on:
   push:
     paths:
+      - "action.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -12,8 +13,11 @@ on:
       - "scripts/**"
       - "src/**"
       - "test/**"
+      - ".github/workflows/action-smoke.yml"
       - ".github/workflows/dev.yml"
+      - ".github/workflows/release.yml"
       - ".github/workflows/release-drafter.yml"
+      - ".github/workflows/rust-release-binaries.yml"
       - ".github/release-drafter.yml"
       - "package.json"
       - "README*.md"
@@ -23,6 +27,7 @@ on:
       - "SECURITY.md"
   pull_request:
     paths:
+      - "action.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -32,8 +37,11 @@ on:
       - "scripts/**"
       - "src/**"
       - "test/**"
+      - ".github/workflows/action-smoke.yml"
       - ".github/workflows/dev.yml"
+      - ".github/workflows/release.yml"
       - ".github/workflows/release-drafter.yml"
+      - ".github/workflows/rust-release-binaries.yml"
       - ".github/release-drafter.yml"
       - "package.json"
       - "README*.md"
@@ -190,3 +198,23 @@ jobs:
       - name: Smoke test packaged CLI entrypoint
         run: |
           node ./scripts/run-packed-wrapper-smoke.mjs ./pack.json ./test/fixtures/clean-project
+
+  release-wiring:
+    name: Release wiring
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Validate release wiring contract
+        run: node ./scripts/validate-rust-release-wiring.mjs
+
+      - name: Run focused release wiring test
+        run: node --test test/github-action-wiring.test.js
