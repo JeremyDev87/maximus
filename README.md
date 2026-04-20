@@ -22,7 +22,7 @@ Maximus는 이제 Rust runtime을 canonical implementation으로 사용합니다
 
 - 루트 `maximus` npm package는 thin launcher이며, 실제 실행은 플랫폼별 prebuilt Rust binary로 위임합니다.
 - 사용자 명령 표면은 그대로 유지합니다: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
-- 저장소의 `src/**/*.js`는 parity 검증과 reference 비교를 위한 frozen reference로 남아 있습니다. npm package에도 optional native runtime이 빠진 설치를 위한 compatibility fallback으로 포함되지만, canonical runtime으로는 취급하지 않습니다.
+- 저장소의 `src/**/*.js`는 parity 검증과 reference 비교를 위한 frozen reference로 남아 있습니다. native Rust runtime이 없을 때는 기본 명령을 위한 compatibility fallback으로만 남아 있으며, `maximus.config.json`이나 `--only` 같은 Rust 전용 기능에는 canonical runtime인 Rust가 필요합니다.
 - `docs/plan/001`~`012`는 Rust v1 spec input이며, `docs/plan/013+`와 기존 JS backlog는 기본 구현 lane이 아닙니다.
 
 전환 경계와 contributor 규칙은 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)에서 확인할 수 있습니다.
@@ -109,7 +109,7 @@ cargo test --workspace
 node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
-`node ./bin/maximus.js`는 repository 안에서 빌드된 Rust CLI(`target/debug/maximus`, `target/release/maximus`)를 우선 실행합니다. 로컬 바이너리가 아직 없으면 `cargo build -p maximus-cli`로 준비할 수 있습니다. `src/**/*.js`는 frozen reference로 남아 있고, npm 배포물에도 optional native runtime이 없는 설치를 위한 compatibility fallback으로 함께 포함됩니다.
+`node ./bin/maximus.js`는 repository 안에서 빌드된 Rust CLI(`target/debug/maximus`, `target/release/maximus`)를 우선 실행하고, 없으면 설치된 platform-specific Rust binary를 찾습니다. 로컬 바이너리가 아직 없으면 `cargo build -p maximus-cli`로 준비할 수 있습니다. Rust runtime이 없을 때도 `src/**/*.js` fallback으로 기본 `audit` / `doctor` / `fix --dry-run` 흐름은 유지되지만, config file 자동 로딩과 `--only`, `--skip`, `--fail-on` 같은 Rust 전용 기능은 native Rust runtime이 필요합니다.
 
 ## 이런 팀에 추천
 

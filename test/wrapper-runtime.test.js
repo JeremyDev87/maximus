@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 test("wrapper preserves conventional exit code when the child terminates by signal", async (t) => {
@@ -49,7 +49,7 @@ test("wrapper preserves conventional exit code when the child terminates by sign
   assert.equal(result.stderr.trim(), "");
 });
 
-test("wrapper falls back to the JS reference runtime on unsupported platforms", async (t) => {
+test("wrapper falls back to the JS reference runtime on unsupported platforms for legacy-compatible commands", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-unsupported-"));
   t.after(async () => {
     await rm(rootDir, { recursive: true, force: true });
@@ -91,7 +91,7 @@ test("wrapper falls back to the JS reference runtime on unsupported platforms", 
   assert.equal(result.stderr.trim(), "");
 });
 
-test("wrapper ignores placeholder native packages and falls back to the JS reference runtime", async (t) => {
+test("wrapper ignores placeholder native packages and falls back to the JS reference runtime for legacy-compatible commands", async (t) => {
   const runtimePackage = currentRuntimePackage();
   if (!runtimePackage) {
     t.skip("current platform is intentionally unsupported by the wrapper");
@@ -146,6 +146,422 @@ test("wrapper ignores placeholder native packages and falls back to the JS refer
     args: ["audit", "."],
   });
   assert.equal(result.stderr.trim(), "");
+});
+
+test("wrapper blocks the frozen JS fallback when Rust-only flags are requested", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-rust-only-flag-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "audit",
+    ".",
+    "--only",
+    "env",
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /A Rust runtime is required/);
+  assert.match(result.stderr, /--only/);
+});
+
+test("wrapper treats dash-prefixed paths as positionals on the frozen JS fallback", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-dash-path-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "audit",
+    "-repo",
+  ]);
+
+  assert.equal(result.code, 0);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    runtime: "js",
+    args: ["audit", "-repo"],
+  });
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("wrapper blocks the frozen JS fallback when a Maximus config file is present", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-config-present-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "maximus.config.json"),
+    '{ "checks": { "only": ["env"] } }\n',
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /maximus\.config\.json/);
+});
+
+test("wrapper blocks the frozen JS fallback when config is found through a symlinked target", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("symlink privileges vary on Windows");
+    return;
+  }
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-symlink-config-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const realProject = path.join(rootDir, "real");
+  const realTarget = path.join(realProject, "apps", "web");
+  const aliasTarget = path.join(rootDir, "alias-web");
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+  await mkdir(realTarget, { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(realProject, "maximus.config.json"),
+    '{ "checks": { "only": ["env"] } }\n',
+    "utf8",
+  );
+  await symlink(realTarget, aliasTarget);
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "audit",
+    aliasTarget,
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /maximus\.config\.json/);
+});
+
+test("wrapper prefers the real project config over a lexical mount config", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("symlink privileges vary on Windows");
+    return;
+  }
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-realpath-config-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const realProject = path.join(rootDir, "real");
+  const realTarget = path.join(realProject, "apps", "web");
+  const mountRoot = path.join(rootDir, "mount");
+  const aliasTarget = path.join(mountRoot, "web");
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+  await mkdir(realTarget, { recursive: true });
+  await mkdir(mountRoot, { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(realProject, "maximus.config.json"),
+    '{ "checks": { "only": ["env"] } }\n',
+    "utf8",
+  );
+  await writeFile(
+    path.join(mountRoot, "maximus.config.json"),
+    '{ "checks": { "only": ["tsconfig"] } }\n',
+    "utf8",
+  );
+  await symlink(realTarget, aliasTarget);
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "audit",
+    aliasTarget,
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /\/real\/maximus\.config\.json/);
+  assert.doesNotMatch(result.stderr, /\/mount\/maximus\.config\.json/);
+});
+
+test("wrapper ignores directory-shaped config paths when evaluating the frozen JS fallback", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-config-dir-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+  await mkdir(path.join(rootDir, "maximus.config.json"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir);
+
+  assert.equal(result.code, 0);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    runtime: "js",
+    args: ["audit", "."],
+  });
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("wrapper prints help before checking config files on the frozen JS fallback", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-help-with-config-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "maximus.config.json"),
+    '{ "checks": { "only": ["env"] } }\n',
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, ["--help"]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Usage/);
+  assert.match(result.stdout, /maximus fix \[path\] --dry-run \[--json\]/);
+  assert.doesNotMatch(result.stdout, /--only <checks>/);
+  assert.match(result.stdout, /require the Rust runtime/);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("wrapper blocks the frozen JS fallback for fix without dry-run", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-fix-write-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "bootstrap.mjs"),
+    [
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      "",
+      'Object.defineProperty(process, "platform", { value: "win32" });',
+      'Object.defineProperty(process, "arch", { value: "x64" });',
+      "",
+      'await import(pathToFileURL(path.join(process.cwd(), "bin", "maximus.js")));',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "fix",
+    ".",
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /A Rust runtime is required/);
+  assert.match(result.stderr, /fix \(without --dry-run\)/);
 });
 
 test("wrapper prefers repository debug binaries over installed packages and release binaries", async (t) => {
@@ -226,11 +642,11 @@ function currentRuntimePackage() {
   return null;
 }
 
-async function runWrapper(wrapperPath, cwd) {
+async function runWrapper(wrapperPath, cwd, args = ["audit", "."]) {
   return await new Promise((resolve, reject) => {
     const stdout = [];
     const stderr = [];
-    const child = spawn(process.execPath, [wrapperPath, "audit", "."], {
+    const child = spawn(process.execPath, [wrapperPath, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });

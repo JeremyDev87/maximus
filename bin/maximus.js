@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { access, open } from "node:fs/promises";
+import { access, open, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
 import path from "node:path";
@@ -13,10 +13,13 @@ const cliArgs = process.argv.slice(2);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 try {
-  const runtime = await resolveRuntime();
+  const runtime = await resolveRuntime(cliArgs);
 
   if (runtime.kind === "binary") {
     await runBinary(runtime.command, cliArgs);
+  } else if (runtime.kind === "compat-help") {
+    console.log(formatCompatHelp());
+    process.exitCode = 0;
   } else {
     await runFrozenJsReference(cliArgs);
   }
@@ -26,7 +29,7 @@ try {
   process.exitCode = process.exitCode || 1;
 }
 
-async function resolveRuntime() {
+async function resolveRuntime(args) {
   const repoBinary = await resolveRepoBinary();
   if (repoBinary) {
     return { kind: "binary", command: repoBinary };
@@ -40,8 +43,14 @@ async function resolveRuntime() {
     }
   }
 
-  if (await hasFrozenJsReferenceRuntime()) {
-    return { kind: "js" };
+  const fallback = await evaluateFrozenJsFallback(args);
+  if (fallback.allowed) {
+    return fallback.runtime;
+  }
+  if (fallback.reason) {
+    throw new Error(
+      `${fallback.reason} Build the Rust CLI with \`cargo build -p maximus-cli\`, or install a supported native runtime package before using this command.`,
+    );
   }
 
   if (!platformPackage) {
@@ -97,10 +106,10 @@ function hasGlibcRuntime() {
 
 function formatUnsupportedPlatformMessage() {
   if (process.platform === "linux" && !hasGlibcRuntime()) {
-    return "Linux musl is not supported yet. Maximus currently ships prebuilt Rust binaries only for Linux glibc and macOS.";
+    return "Linux musl is not supported yet. Maximus currently ships prebuilt Rust binaries only for Linux glibc and macOS. When no Rust runtime is available, the bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.";
   }
 
-  return `Unsupported platform ${process.platform}-${process.arch}. Maximus currently ships prebuilt Rust binaries only for darwin-arm64, darwin-x64, linux-arm64-gnu, and linux-x64-gnu.`;
+  return `Unsupported platform ${process.platform}-${process.arch}. Maximus currently ships prebuilt Rust binaries only for darwin-arm64, darwin-x64, linux-arm64-gnu, and linux-x64-gnu. When no Rust runtime is available, the bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.`;
 }
 
 async function resolveInstalledBinary(packageName) {
@@ -134,6 +143,140 @@ async function resolveRepoBinary() {
   return null;
 }
 
+async function evaluateFrozenJsFallback(args) {
+  if (!(await hasFrozenJsReferenceRuntime())) {
+    return { allowed: false, reason: null };
+  }
+
+  const parsed = parseCompatInvocation(args);
+
+  if (parsed.mode === "compat-help") {
+    return { allowed: true, runtime: { kind: "compat-help" } };
+  }
+
+  if (parsed.unsupportedFlags.length > 0) {
+    return {
+      allowed: false,
+      reason: `A Rust runtime is required for options not supported by the frozen JS compatibility path: ${parsed.unsupportedFlags.join(", ")}.`,
+    };
+  }
+
+  const configPath = await findNearestConfigPath(parsed.targetDir);
+  if (configPath) {
+    return {
+      allowed: false,
+      reason: `A Rust runtime is required when a Maximus config file is present (${configPath}).`,
+    };
+  }
+
+  return { allowed: true, runtime: { kind: "js" } };
+}
+
+function parseCompatInvocation(args) {
+  if (args.length === 0) {
+    return {
+      mode: "compat-help",
+      targetDir: process.cwd(),
+      unsupportedFlags: [],
+    };
+  }
+
+  const [command, ...rest] = args;
+  if (
+    command === "help"
+    || command === "--help"
+    || command === "-h"
+    || rest.includes("--help")
+    || rest.includes("-h")
+  ) {
+    return {
+      mode: "compat-help",
+      targetDir: process.cwd(),
+      unsupportedFlags: [],
+    };
+  }
+
+  let pathArg;
+  const unsupportedFlags = [];
+  const valueFlags = new Set(["--only", "--skip", "--fail-on", "--fix-id", "--fix-prefix"]);
+  const passthroughFlags = new Set(["--dry-run", "--json"]);
+  const isFixCommand = command === "fix";
+  const hasDryRun = rest.includes("--dry-run");
+
+  if (isFixCommand && !hasDryRun) {
+    unsupportedFlags.push("fix (without --dry-run)");
+  }
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+
+    if (valueFlags.has(token)) {
+      unsupportedFlags.push(token);
+      index += 1;
+      continue;
+    }
+
+    if (token === "--diff") {
+      unsupportedFlags.push(token);
+      continue;
+    }
+
+    if (passthroughFlags.has(token) || token === "--help" || token === "-h") {
+      continue;
+    }
+
+    if (pathArg === undefined) {
+      pathArg = token;
+    }
+  }
+
+  return {
+    mode: "js",
+    targetDir: path.resolve(pathArg ?? process.cwd()),
+    unsupportedFlags,
+  };
+}
+
+async function findNearestConfigPath(startDir) {
+  const resolvedStartDir = path.resolve(startDir);
+  const startDirs = [];
+  try {
+    startDirs.push(await realpath(resolvedStartDir));
+  } catch {
+    // Fall back to lexical ancestor search when the target is not realpath-able.
+  }
+  startDirs.push(resolvedStartDir);
+  const searchedDirs = new Set();
+
+  for (let currentDir of startDirs) {
+    while (true) {
+      if (!searchedDirs.has(currentDir)) {
+        searchedDirs.add(currentDir);
+        for (const name of ["maximus.config.json", ".maximusrc.json"]) {
+          const candidate = path.join(currentDir, name);
+
+          try {
+            if ((await stat(candidate)).isFile()) {
+              return candidate;
+            }
+          } catch {
+            // continue
+          }
+        }
+      }
+
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) {
+        break;
+      }
+
+      currentDir = parentDir;
+    }
+  }
+
+  return null;
+}
+
 async function hasFrozenJsReferenceRuntime() {
   try {
     await access(path.join(repoRoot, "src", "cli.js"));
@@ -159,7 +302,7 @@ function formatMissingRuntimeMessage(platformPackage) {
   return [
     `No Rust runtime is available for ${platformPackage.label}.`,
     `Expected optional dependency "${platformPackage.packageName}" to be installed or a local Cargo build to exist in target/debug or target/release.`,
-    "The bundled JS compatibility fallback was not available either.",
+    "The bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.",
     "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
   ].join(" ");
 }
@@ -191,6 +334,22 @@ async function runFrozenJsReference(args) {
   const { runCli } = await import("../src/cli.js");
   await runCli(args);
   process.exitCode = process.exitCode ?? 0;
+}
+
+function formatCompatHelp() {
+  return [
+    "Maximus",
+    "",
+    "Bring order to chaotic configs.",
+    "",
+    "Usage",
+    "  maximus audit [path] [--json]",
+    "  maximus doctor [path] [--json]",
+    "  maximus fix [path] --dry-run [--json]",
+    "  maximus help",
+    "",
+    "When no Rust runtime is available, the bundled JS compatibility path can only execute legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, and `--fix-prefix` require the Rust runtime, and `fix` is only available with `--dry-run`.",
+  ].join("\n");
 }
 
 function signalExitCode(signal) {

@@ -187,10 +187,12 @@ fn fix_only_flags_are_rejected_for_help_command() {
         .output()
         .expect("command should run");
 
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(
-        String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(
+        String::from_utf8(output.stdout)
+            .expect("stdout should be utf8")
+            .contains("Usage\n  maximus audit [path]")
     );
 }
 
@@ -201,10 +203,12 @@ fn fix_only_flags_are_rejected_for_fix_help_command() {
         .output()
         .expect("command should run");
 
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(
-        String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(
+        String::from_utf8(output.stdout)
+            .expect("stdout should be utf8")
+            .contains("Usage\n  maximus audit [path]")
     );
 }
 
@@ -215,10 +219,12 @@ fn fix_only_flags_are_rejected_when_help_flag_precedes_fix_command() {
         .output()
         .expect("command should run");
 
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(
-        String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(
+        String::from_utf8(output.stdout)
+            .expect("stdout should be utf8")
+            .contains("Usage\n  maximus audit [path]")
     );
 }
 

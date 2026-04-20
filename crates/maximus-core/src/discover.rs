@@ -29,14 +29,53 @@ const IGNORED_DIRECTORIES: &[&str] = &[
     "tmp",
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IgnorePattern {
+    Component(String),
+    Glob(Vec<String>),
+}
+
 pub fn discover_project(root_dir: impl AsRef<Path>) -> io::Result<ProjectSnapshot> {
     let root_dir = root_dir.as_ref().to_path_buf();
+    discover_project_with_ignore(&root_dir, &[])
+}
+
+pub fn discover_project_with_ignore(
+    root_dir: impl AsRef<Path>,
+    ignored_patterns: &[String],
+) -> io::Result<ProjectSnapshot> {
+    let root_dir = root_dir.as_ref().to_path_buf();
+    discover_project_with_ignore_root(&root_dir, ignored_patterns, &root_dir)
+}
+
+pub fn discover_project_with_ignore_root(
+    root_dir: impl AsRef<Path>,
+    ignored_patterns: &[String],
+    ignore_root: impl AsRef<Path>,
+) -> io::Result<ProjectSnapshot> {
+    let root_dir = root_dir.as_ref().to_path_buf();
+    let ignore_root = ignore_root.as_ref().to_path_buf();
+    let ignored_patterns = ignored_patterns
+        .iter()
+        .filter_map(|pattern| normalize_ignore_pattern(pattern))
+        .collect::<Vec<_>>();
+
+    if is_ignored_path_from_root(&ignore_root, &root_dir, &ignored_patterns) {
+        return Ok(ProjectSnapshot {
+            root_dir,
+            files: Vec::new(),
+            directories: Vec::new(),
+            files_by_kind: IndexMap::new(),
+            package_files: Vec::new(),
+        });
+    }
+
     let mut files = Vec::new();
 
     let walker = WalkDir::new(&root_dir)
         .sort_by_file_name()
         .into_iter()
-        .filter_entry(|entry| should_visit(entry));
+        .filter_entry(|entry| should_visit(&ignore_root, entry, &ignored_patterns));
 
     for entry in walker {
         let entry = entry?;
@@ -54,6 +93,9 @@ pub fn discover_project(root_dir: impl AsRef<Path>) -> io::Result<ProjectSnapsho
             .map(Path::to_path_buf)
             .unwrap_or_else(|| root_dir.clone());
         let relative_path = relative_string(&root_dir, &path);
+        if is_ignored_path_from_root(&ignore_root, &path, &ignored_patterns) {
+            continue;
+        }
 
         files.push(ProjectFile {
             kind,
@@ -118,6 +160,27 @@ pub fn discover_project(root_dir: impl AsRef<Path>) -> io::Result<ProjectSnapsho
     })
 }
 
+pub fn is_ignored_project_path(
+    root_dir: impl AsRef<Path>,
+    target: impl AsRef<Path>,
+    ignored_patterns: &[String],
+) -> bool {
+    is_ignored_project_path_from_root(root_dir, target, ignored_patterns)
+}
+
+pub fn is_ignored_project_path_from_root(
+    ignore_root: impl AsRef<Path>,
+    target: impl AsRef<Path>,
+    ignored_patterns: &[String],
+) -> bool {
+    let ignored_patterns = ignored_patterns
+        .iter()
+        .filter_map(|pattern| normalize_ignore_pattern(pattern))
+        .collect::<Vec<_>>();
+
+    is_ignored_path_from_root(ignore_root.as_ref(), target.as_ref(), &ignored_patterns)
+}
+
 pub fn get_files(project: &ProjectSnapshot, kind: FileKind) -> &[ProjectFile] {
     project
         .files_by_kind
@@ -142,12 +205,174 @@ pub fn find_nearest_package_file<'a>(
     })
 }
 
-fn should_visit(entry: &DirEntry) -> bool {
+fn should_visit(ignore_root: &Path, entry: &DirEntry, ignored_patterns: &[IgnorePattern]) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_dir() {
         return true;
     }
 
-    !IGNORED_DIRECTORIES.contains(&entry.file_name().to_string_lossy().as_ref())
+    let file_name = entry.file_name().to_string_lossy();
+    if IGNORED_DIRECTORIES.contains(&file_name.as_ref()) {
+        return false;
+    }
+
+    !is_ignored_path_from_root(ignore_root, entry.path(), ignored_patterns)
+}
+
+fn normalize_ignore_pattern(pattern: &str) -> Option<IgnorePattern> {
+    let trimmed = pattern.trim().replace('\\', "/");
+    let trimmed = trimmed.trim_start_matches("./").trim_matches('/');
+
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if !trimmed.contains('/') && !contains_glob_meta(trimmed) {
+        return Some(IgnorePattern::Component(trimmed.to_string()));
+    }
+
+    Some(IgnorePattern::Glob(
+        trimmed
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+    ))
+}
+
+fn contains_glob_meta(pattern: &str) -> bool {
+    pattern.contains('*') || pattern.contains('?')
+}
+
+fn is_ignored_relative_path(relative_path: &str, ignored_patterns: &[IgnorePattern]) -> bool {
+    if ignored_patterns.is_empty() {
+        return false;
+    }
+
+    let normalized_path = relative_path.replace('\\', "/");
+    let path_segments = normalized_path
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect::<Vec<_>>();
+
+    ignored_patterns.iter().any(|pattern| match pattern {
+        IgnorePattern::Component(component) => path_segments
+            .iter()
+            .any(|segment| *segment == component.as_str()),
+        IgnorePattern::Glob(pattern_segments) => {
+            glob_path_matches(pattern_segments, &path_segments)
+        }
+    })
+}
+
+fn is_ignored_path_from_root(
+    ignore_root: &Path,
+    target: &Path,
+    ignored_patterns: &[IgnorePattern],
+) -> bool {
+    if ignored_patterns.is_empty() {
+        return false;
+    }
+    if relative_matches(ignore_root, target, ignored_patterns) {
+        return true;
+    }
+
+    let Ok(canonical_ignore_root) = std::fs::canonicalize(ignore_root) else {
+        return false;
+    };
+    let Ok(canonical_target) = std::fs::canonicalize(target) else {
+        return false;
+    };
+
+    relative_matches(&canonical_ignore_root, &canonical_target, ignored_patterns)
+}
+
+fn relative_matches(ignore_root: &Path, target: &Path, ignored_patterns: &[IgnorePattern]) -> bool {
+    let relative_path = relative_string(ignore_root, target);
+    is_ignored_relative_path(&relative_path, ignored_patterns)
+}
+
+fn glob_path_matches(pattern_segments: &[String], path_segments: &[&str]) -> bool {
+    let mut memo = vec![vec![None; path_segments.len() + 1]; pattern_segments.len() + 1];
+    glob_path_matches_from(pattern_segments, path_segments, 0, 0, &mut memo)
+}
+
+fn glob_path_matches_from(
+    pattern_segments: &[String],
+    path_segments: &[&str],
+    pattern_index: usize,
+    path_index: usize,
+    memo: &mut [Vec<Option<bool>>],
+) -> bool {
+    if let Some(result) = memo[pattern_index][path_index] {
+        return result;
+    }
+
+    let result = if pattern_index == pattern_segments.len() {
+        path_index == path_segments.len()
+    } else if pattern_segments[pattern_index] == "**" {
+        glob_path_matches_from(
+            pattern_segments,
+            path_segments,
+            pattern_index + 1,
+            path_index,
+            memo,
+        ) || (path_index < path_segments.len()
+            && glob_path_matches_from(
+                pattern_segments,
+                path_segments,
+                pattern_index,
+                path_index + 1,
+                memo,
+            ))
+    } else {
+        path_index < path_segments.len()
+            && glob_segment_matches(&pattern_segments[pattern_index], path_segments[path_index])
+            && glob_path_matches_from(
+                pattern_segments,
+                path_segments,
+                pattern_index + 1,
+                path_index + 1,
+                memo,
+            )
+    };
+
+    memo[pattern_index][path_index] = Some(result);
+    result
+}
+
+fn glob_segment_matches(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
+    let mut memo = vec![vec![None; value.len() + 1]; pattern.len() + 1];
+
+    glob_segment_matches_from(&pattern, &value, 0, 0, &mut memo)
+}
+
+fn glob_segment_matches_from(
+    pattern: &[char],
+    value: &[char],
+    pattern_index: usize,
+    value_index: usize,
+    memo: &mut [Vec<Option<bool>>],
+) -> bool {
+    if let Some(result) = memo[pattern_index][value_index] {
+        return result;
+    }
+
+    let result = if pattern_index == pattern.len() {
+        value_index == value.len()
+    } else if pattern[pattern_index] == '*' {
+        glob_segment_matches_from(pattern, value, pattern_index + 1, value_index, memo)
+            || (value_index < value.len()
+                && glob_segment_matches_from(pattern, value, pattern_index, value_index + 1, memo))
+    } else {
+        value_index < value.len()
+            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
+            && glob_segment_matches_from(pattern, value, pattern_index + 1, value_index + 1, memo)
+    };
+
+    memo[pattern_index][value_index] = Some(result);
+    result
 }
 
 fn relative_string(root_dir: &Path, target: &Path) -> String {
