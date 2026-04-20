@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -106,12 +106,23 @@ pub fn load_maximus_config(start_dir: &Path) -> Result<Option<LoadedConfig>, Loa
 
 pub fn find_maximus_config_path(start_dir: &Path) -> io::Result<Option<PathBuf>> {
     let start_dir = std::path::absolute(start_dir)?;
+    let mut start_dirs = Vec::new();
+    if let Ok(canonical_start_dir) = std::fs::canonicalize(&start_dir) {
+        start_dirs.push(canonical_start_dir);
+    }
+    start_dirs.push(start_dir.clone());
+    let mut searched_directories = BTreeSet::new();
 
-    for directory in start_dir.ancestors() {
-        for file_name in CONFIG_FILE_NAMES {
-            let candidate = directory.join(file_name);
-            if candidate.is_file() {
-                return Ok(Some(candidate));
+    for start_dir in start_dirs {
+        for directory in start_dir.ancestors() {
+            if !searched_directories.insert(directory.to_path_buf()) {
+                continue;
+            }
+            for file_name in CONFIG_FILE_NAMES {
+                let candidate = directory.join(file_name);
+                if candidate.is_file() {
+                    return Ok(Some(candidate));
+                }
             }
         }
     }

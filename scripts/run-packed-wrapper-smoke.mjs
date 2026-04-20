@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolvePackedWrapperLaunch } from "./lib/packed-wrapper-launch.mjs";
@@ -80,6 +80,7 @@ try {
   });
 
   await runScenario(omitOptionalInstallRoot);
+  await runFallbackBlockingScenarios(omitOptionalInstallRoot);
 
   console.log(`Packed wrapper smoke passed via ${path.basename(rootTarball)}.`);
 } finally {
@@ -96,7 +97,17 @@ async function resolveRootTarball(jsonPath) {
 
   assert.equal(typeof filename, "string", "npm pack JSON must include filename");
 
-  return path.isAbsolute(filename) ? filename : path.join(repoRoot, filename);
+  if (path.isAbsolute(filename)) {
+    return filename;
+  }
+
+  const jsonRelativePath = path.join(path.dirname(absoluteJsonPath), filename);
+  try {
+    await access(jsonRelativePath);
+    return jsonRelativePath;
+  } catch {
+    return path.join(repoRoot, filename);
+  }
 }
 
 function resolvePlatformPackage() {
@@ -315,6 +326,33 @@ async function runScenario(installRoot) {
   await runWrapper(["fix", fixtureDir, "--dry-run"], installRoot);
 }
 
+async function runFallbackBlockingScenarios(installRoot) {
+  const configFixture = path.join(installRoot, "config-fixture");
+
+  await mkdir(configFixture, { recursive: true });
+  await writeFile(
+    path.join(configFixture, "maximus.config.json"),
+    '{ "checks": { "only": ["env"] } }\n',
+    "utf8",
+  );
+
+  await assertWrapperFails(
+    ["audit", configFixture],
+    installRoot,
+    /A Rust runtime is required when a Maximus config file is present/,
+  );
+  await assertWrapperFails(
+    ["audit", fixtureDir, "--only", "env"],
+    installRoot,
+    /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
+  );
+  await assertWrapperFails(
+    ["fix", fixtureDir],
+    installRoot,
+    /fix \(without --dry-run\)/,
+  );
+}
+
 async function removeJsFallback(installRoot) {
   await rm(path.join(installRoot, "node_modules", "maximus", "src"), {
     recursive: true,
@@ -332,6 +370,26 @@ async function runWrapper(args, cwd) {
       npm_config_cache: path.join(cwd, ".npm-cache"),
     },
   });
+}
+
+async function assertWrapperFails(args, cwd, expectedPattern) {
+  const launch = await resolvePackedWrapperLaunch(cwd);
+  const result = await runCommandAsync(launch.command, [...launch.args, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      npm_config_cache: path.join(cwd, ".npm-cache"),
+    },
+    rejectOnFailure: false,
+  });
+
+  if (result.code === 0) {
+    throw new Error(`Expected wrapper command to fail: maximus ${args.join(" ")}`);
+  }
+
+  const combinedOutput = `${result.stdout}\n${result.stderr}`;
+  assert.match(combinedOutput, expectedPattern);
 }
 
 function runCommand(command, args, options) {
@@ -372,12 +430,13 @@ async function runCommandAsync(command, args, options) {
       reject(error);
     });
     child.on("close", (code) => {
-      if (code !== 0) {
+      if (code !== 0 && options.rejectOnFailure !== false) {
         reject(new Error(stderr || stdout || `${command} ${args.join(" ")} failed`));
         return;
       }
 
       resolve({
+        code,
         stdout,
         stderr,
       });

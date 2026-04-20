@@ -22,9 +22,9 @@ fn no_args_prints_help() {
             "Bring order to chaotic configs.",
             "",
             "Usage",
-            "  maximus audit [path] [--json]",
-            "  maximus doctor [path] [--json]",
-            "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+            "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+            "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+            "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
             "  maximus help",
             "",
         ]
@@ -42,7 +42,9 @@ fn help_subcommand_prints_usage() {
     assert!(output.status.success());
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
-        .contains("maximus audit [path] [--json]"));
+        .contains(
+            "maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]"
+        ));
 }
 
 #[test]
@@ -135,14 +137,24 @@ fn fix_reference_env_json_matches_js_cli_output_and_status() {
 
     assert_eq!(rust_output.status.code(), js_output.status.code());
 
-    let rust_json: Value = serde_json::from_slice(&rust_output.stdout).expect("rust json should parse");
+    let rust_json: Value =
+        serde_json::from_slice(&rust_output.stdout).expect("rust json should parse");
     let js_json: Value = serde_json::from_slice(&js_output.stdout).expect("js json should parse");
 
     assert_eq!(rust_json["dryRun"], js_json["dryRun"]);
     assert_eq!(rust_json["applied"][0]["outcome"], "created");
-    assert_eq!(rust_json["applied"][0]["outcome"], js_json["applied"][0]["outcome"]);
-    assert_eq!(rust_json["initial"]["summary"]["status"], js_json["initial"]["summary"]["status"]);
-    assert_eq!(rust_json["final"]["summary"]["status"], js_json["final"]["summary"]["status"]);
+    assert_eq!(
+        rust_json["applied"][0]["outcome"],
+        js_json["applied"][0]["outcome"]
+    );
+    assert_eq!(
+        rust_json["initial"]["summary"]["status"],
+        js_json["initial"]["summary"]["status"]
+    );
+    assert_eq!(
+        rust_json["final"]["summary"]["status"],
+        js_json["final"]["summary"]["status"]
+    );
 }
 
 #[test]
@@ -205,6 +217,25 @@ fn fix_dry_run_json_keeps_js_top_level_contract() {
 fn unknown_command_uses_prefixed_stderr_and_exit_code_two() {
     let output = maximus_bin()
         .arg("foobar")
+        .output()
+        .expect("unknown command should run");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(output.stderr).expect("stderr should be utf8"),
+        "Maximus failed: Unknown command \"foobar\". Run \"maximus help\" for usage.\n"
+    );
+}
+
+#[test]
+fn unknown_command_does_not_load_broken_config() {
+    let fixture = tempdir().expect("fixture should exist");
+    let config_path = fixture.path().join("maximus.config.json");
+    fs::write(&config_path, r#"{ "checks": { "only": ["env",] }"#)
+        .expect("broken config should write");
+
+    let output = maximus_bin()
+        .args(["foobar", fixture.path().to_string_lossy().as_ref()])
         .output()
         .expect("unknown command should run");
 

@@ -1,9 +1,10 @@
 use maximus_core::{
-    discover_project, find_nearest_package_file, get_directories, get_files,
-    is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, make_finding,
-    parse_env, parse_jsonc, path_exists, read_text_if_exists, render_env_template,
-    serialize_audit_result, sort_findings, summarize_findings, unique_fixes, FileKind,
-    FindingInput, FixPlan, ProjectSnapshot, Severity, StructureReport,
+    discover_project, discover_project_with_ignore, discover_project_with_ignore_root,
+    find_nearest_package_file, get_directories, get_files, is_concrete_env_file_name,
+    is_template_env_file_name, looks_like_secret, make_finding, parse_env, parse_jsonc,
+    path_exists, read_text_if_exists, render_env_template, serialize_audit_result, sort_findings,
+    summarize_findings, unique_fixes, FileKind, FindingInput, FixPlan, ProjectSnapshot, Severity,
+    StructureReport,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -86,7 +87,10 @@ fn parse_env_tracks_duplicates_invalid_lines_and_order() {
         parsed.values.keys().map(String::as_str).collect::<Vec<_>>(),
         vec!["API_URL", "AUTH_TOKEN"]
     );
-    assert_eq!(parsed.values["AUTH_TOKEN"].raw_value, "\"secretvalue123456\"");
+    assert_eq!(
+        parsed.values["AUTH_TOKEN"].raw_value,
+        "\"secretvalue123456\""
+    );
     assert_eq!(parsed.values["AUTH_TOKEN"].value, "secretvalue123456");
     assert_eq!(parsed.values["API_URL"].value, "https://example.com");
 }
@@ -167,10 +171,7 @@ fn discovery_includes_prettier_toml_and_finds_nearest_package() {
     );
     assert_eq!(get_files(&snapshot, FileKind::Prettier).len(), 1);
     assert!(
-        snapshot
-            .files
-            .iter()
-            .all(|file| file.name != ".env."),
+        snapshot.files.iter().all(|file| file.name != ".env."),
         "malformed .env. files should not be classified as env files"
     );
     assert!(
@@ -201,6 +202,67 @@ fn discovery_ignores_common_build_directories() {
         .all(|file| !file.relative_path.contains("node_modules")
             && !file.relative_path.contains("dist")
             && !file.relative_path.contains("target")));
+}
+
+#[test]
+fn discovery_applies_glob_ignore_patterns_to_nested_directories() {
+    let fixture = temp_fixture();
+    std::fs::create_dir_all(fixture.path().join("packages/app/generated")).unwrap();
+    std::fs::write(
+        fixture.path().join("packages/app/generated/tsconfig.json"),
+        r#"{"compilerOptions":{"baseUrl":"."}}"#,
+    )
+    .unwrap();
+
+    let snapshot =
+        discover_project_with_ignore(fixture.path(), &["**/generated".to_string()]).unwrap();
+
+    assert!(snapshot
+        .files
+        .iter()
+        .all(|file| !file.relative_path.contains("/generated/")));
+}
+
+#[test]
+fn discovery_applies_glob_ignore_patterns_to_matching_files() {
+    let fixture = temp_fixture();
+    std::fs::create_dir_all(fixture.path().join("configs")).unwrap();
+    std::fs::write(
+        fixture.path().join("configs/tsconfig.generated.json"),
+        r#"{"compilerOptions":{"baseUrl":"."}}"#,
+    )
+    .unwrap();
+
+    let snapshot =
+        discover_project_with_ignore(fixture.path(), &["**/*.generated.json".to_string()]).unwrap();
+
+    assert!(snapshot
+        .files
+        .iter()
+        .all(|file| file.relative_path != "configs/tsconfig.generated.json"));
+}
+
+#[test]
+fn discovery_skips_directly_ignored_target_directory() {
+    let fixture = temp_fixture();
+    let target = fixture.path().join("packages/app/generated");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(
+        target.join("tsconfig.json"),
+        r#"{"compilerOptions":{"baseUrl":"."}}"#,
+    )
+    .unwrap();
+
+    let snapshot = discover_project_with_ignore_root(
+        &target,
+        &["packages/app/generated".to_string()],
+        fixture.path(),
+    )
+    .unwrap();
+
+    assert!(snapshot.files.is_empty());
+    assert!(snapshot.directories.is_empty());
+    assert!(snapshot.package_files.is_empty());
 }
 
 #[test]
@@ -549,7 +611,11 @@ fn temp_fixture() -> TempDir {
         "API_URL=http://localhost:3000\n",
     )
     .unwrap();
-    std::fs::write(fixture.path().join("packages/app/.env."), "SHOULD_IGNORE=1\n").unwrap();
+    std::fs::write(
+        fixture.path().join("packages/app/.env."),
+        "SHOULD_IGNORE=1\n",
+    )
+    .unwrap();
 
     std::fs::create_dir_all(fixture.path().join("node_modules/pkg")).unwrap();
     std::fs::write(
@@ -560,8 +626,11 @@ fn temp_fixture() -> TempDir {
     std::fs::create_dir_all(fixture.path().join("dist")).unwrap();
     std::fs::write(fixture.path().join("dist/tsconfig.json"), "{}").unwrap();
     std::fs::create_dir_all(fixture.path().join("target/debug")).unwrap();
-    std::fs::write(fixture.path().join("target/debug/package.json"), r#"{"name":"ignored-target"}"#)
-        .unwrap();
+    std::fs::write(
+        fixture.path().join("target/debug/package.json"),
+        r#"{"name":"ignored-target"}"#,
+    )
+    .unwrap();
 
     fixture
 }

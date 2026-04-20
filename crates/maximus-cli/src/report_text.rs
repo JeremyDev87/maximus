@@ -11,9 +11,9 @@ pub fn format_help() -> String {
         "Bring order to chaotic configs.",
         "",
         "Usage",
-        "  maximus audit [path] [--json]",
-        "  maximus doctor [path] [--json]",
-        "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+        "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+        "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+        "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
         "  maximus help",
     ]
     .join("\n")
@@ -28,14 +28,19 @@ pub fn format_audit_report(result: &AuditResult) -> String {
     lines.push(format!("Status: {}", result.summary.status));
     lines.push(format!(
         "Findings: {} error, {} warnings, {} info",
-        result.summary.blocking_findings, result.summary.warning_findings, result.summary.info_findings
+        result.summary.blocking_findings,
+        result.summary.warning_findings,
+        result.summary.info_findings
     ));
     lines.push(format!(
         "Fixes available: {}",
         result.summary.fixes_available
     ));
     lines.push(String::new());
-    lines.push(format!("Structure: {}", describe_structure(&result.structure)));
+    lines.push(format!(
+        "Structure: {}",
+        describe_structure(&result.structure)
+    ));
 
     if result.findings.is_empty() {
         lines.push(String::new());
@@ -64,7 +69,11 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
         .iter()
         .filter(|finding| !finding.fixable)
         .count();
-    let fixable_findings = result.findings.iter().filter(|finding| finding.fixable).count();
+    let fixable_findings = result
+        .findings
+        .iter()
+        .filter(|finding| finding.fixable)
+        .count();
 
     lines.push("Maximus doctor".to_string());
     lines.push(format!("Target: {}", display_path(&result.root_dir)));
@@ -179,7 +188,9 @@ pub fn format_fix_result(
     lines.push(String::new());
     lines.push(format!(
         "Post-check: {} error, {} warnings, {} info",
-        result.summary.blocking_findings, result.summary.warning_findings, result.summary.info_findings
+        result.summary.blocking_findings,
+        result.summary.warning_findings,
+        result.summary.info_findings
     ));
 
     if result.findings.is_empty() {
@@ -198,7 +209,11 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
     let mut lines = Vec::new();
 
     for finding in &result.findings {
-        lines.push(format!("- [{}] {}", severity_label(&finding.severity), finding.title));
+        lines.push(format!(
+            "- [{}] {}",
+            severity_label(&finding.severity),
+            finding.title
+        ));
 
         if let Some(file) = &finding.file {
             lines.push(format!(
@@ -320,9 +335,9 @@ mod tests {
                 "Bring order to chaotic configs.",
                 "",
                 "Usage",
-                "  maximus audit [path] [--json]",
-                "  maximus doctor [path] [--json]",
-                "  maximus fix [path] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+                "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+                "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
+                "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
                 "  maximus help",
             ]
             .join("\n")

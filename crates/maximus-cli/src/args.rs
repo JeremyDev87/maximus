@@ -5,10 +5,13 @@ use std::fmt::{Display, Formatter};
 pub struct Flags {
     pub diff: bool,
     pub dry_run: bool,
+    pub fail_on: Option<String>,
     pub fix_ids: Vec<String>,
     pub fix_prefixes: Vec<String>,
     pub help: bool,
     pub json: bool,
+    pub only_checks: Option<Vec<String>>,
+    pub skip_checks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -20,12 +23,14 @@ pub struct ParsedArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgsError {
+    EmptyValue(&'static str),
     MissingValue(&'static str),
 }
 
 impl Display for ArgsError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EmptyValue(flag) => write!(f, "Option \"{flag}\" requires a non-empty value."),
             Self::MissingValue(flag) => write!(f, "Option \"{flag}\" requires a value."),
         }
     }
@@ -44,13 +49,35 @@ where
         match token.to_str() {
             Some("--diff") => flags.diff = true,
             Some("--dry-run") => flags.dry_run = true,
+            Some("--fail-on") => {
+                let value = next_option_value(tokens.next(), "--fail-on")?;
+                flags.fail_on = Some(value.to_string_lossy().into_owned());
+            }
             Some("--fix-id") => {
                 let value = next_option_value(tokens.next(), "--fix-id")?;
                 flags.fix_ids.push(value.to_string_lossy().into_owned());
             }
             Some("--fix-prefix") => {
                 let value = next_option_value(tokens.next(), "--fix-prefix")?;
-                flags.fix_prefixes.push(value.to_string_lossy().into_owned());
+                flags
+                    .fix_prefixes
+                    .push(value.to_string_lossy().into_owned());
+            }
+            Some("--only") => {
+                let value = next_option_value(tokens.next(), "--only")?;
+                let values = split_csv_values(&value, "--only")?;
+                flags
+                    .only_checks
+                    .get_or_insert_with(Vec::new)
+                    .extend(values);
+            }
+            Some("--skip") => {
+                let value = next_option_value(tokens.next(), "--skip")?;
+                let values = split_csv_values(&value, "--skip")?;
+                flags
+                    .skip_checks
+                    .get_or_insert_with(Vec::new)
+                    .extend(values);
             }
             Some("--json") => flags.json = true,
             Some("--help") | Some("-h") => flags.help = true,
@@ -59,7 +86,9 @@ where
     }
 
     Ok(ParsedArgs {
-        command: args.first().map(|value| value.to_string_lossy().into_owned()),
+        command: args
+            .first()
+            .map(|value| value.to_string_lossy().into_owned()),
         args: args.into_iter().skip(1).collect(),
         flags,
     })
@@ -80,6 +109,22 @@ fn next_option_value(value: Option<OsString>, flag: &'static str) -> Result<OsSt
     Ok(value)
 }
 
+fn split_csv_values(value: &OsString, flag: &'static str) -> Result<Vec<String>, ArgsError> {
+    let values = value
+        .to_string_lossy()
+        .split(',')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    if values.is_empty() {
+        return Err(ArgsError::EmptyValue(flag));
+    }
+
+    Ok(values)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -88,8 +133,8 @@ mod tests {
 
     #[test]
     fn parse_args_collects_known_flags_and_positionals() {
-        let parsed = parse_args(["fix", "./repo", "--dry-run", "--json"])
-            .expect("args should parse");
+        let parsed =
+            parse_args(["fix", "./repo", "--dry-run", "--json"]).expect("args should parse");
 
         assert_eq!(
             parsed,
@@ -99,10 +144,13 @@ mod tests {
                 flags: Flags {
                     diff: false,
                     dry_run: true,
+                    fail_on: None,
                     fix_ids: Vec::new(),
                     fix_prefixes: Vec::new(),
                     help: false,
                     json: true,
+                    only_checks: None,
+                    skip_checks: None,
                 },
             }
         );
@@ -110,8 +158,7 @@ mod tests {
 
     #[test]
     fn parse_args_treats_unknown_tokens_as_positionals() {
-        let parsed =
-            parse_args(["audit", "--mystery", "target"]).expect("args should parse");
+        let parsed = parse_args(["audit", "--mystery", "target"]).expect("args should parse");
 
         assert_eq!(parsed.command.as_deref(), Some("audit"));
         assert_eq!(
@@ -125,6 +172,12 @@ mod tests {
         let parsed = parse_args([
             "fix",
             "./repo",
+            "--only",
+            "env,tsconfig",
+            "--skip",
+            "duplicates",
+            "--fail-on",
+            "error",
             "--fix-id",
             "env-example:create:.",
             "--fix-prefix",
@@ -135,7 +188,19 @@ mod tests {
 
         assert_eq!(parsed.command.as_deref(), Some("fix"));
         assert_eq!(parsed.args, vec![OsString::from("./repo")]);
-        assert_eq!(parsed.flags.fix_ids, vec!["env-example:create:.".to_string()]);
+        assert_eq!(
+            parsed.flags.only_checks,
+            Some(vec!["env".to_string(), "tsconfig".to_string()])
+        );
+        assert_eq!(
+            parsed.flags.skip_checks,
+            Some(vec!["duplicates".to_string()])
+        );
+        assert_eq!(parsed.flags.fail_on.as_deref(), Some("error"));
+        assert_eq!(
+            parsed.flags.fix_ids,
+            vec!["env-example:create:.".to_string()]
+        );
         assert_eq!(parsed.flags.fix_prefixes, vec!["env-example:".to_string()]);
         assert!(parsed.flags.diff);
     }
@@ -153,6 +218,49 @@ mod tests {
             .expect_err("flag-shaped selector should fail");
 
         assert_eq!(error, ArgsError::MissingValue("--fix-id"));
+    }
+
+    #[test]
+    fn parse_args_errors_when_only_filter_is_empty() {
+        let error =
+            parse_args(["audit", "--only", "  ,  "]).expect_err("empty only filter should fail");
+
+        assert_eq!(error, ArgsError::EmptyValue("--only"));
+    }
+
+    #[test]
+    fn parse_args_errors_when_skip_filter_is_empty() {
+        let error = parse_args(["audit", "--skip", ""]).expect_err("empty skip filter should fail");
+
+        assert_eq!(error, ArgsError::EmptyValue("--skip"));
+    }
+
+    #[test]
+    fn parse_args_collects_multiple_check_filter_flags() {
+        let parsed = parse_args([
+            "audit",
+            ".",
+            "--only",
+            "env",
+            "--only",
+            "tsconfig,duplicates",
+            "--skip",
+            "lockfiles",
+        ])
+        .expect("args should parse");
+
+        assert_eq!(
+            parsed.flags.only_checks,
+            Some(vec![
+                "env".to_string(),
+                "tsconfig".to_string(),
+                "duplicates".to_string()
+            ])
+        );
+        assert_eq!(
+            parsed.flags.skip_checks,
+            Some(vec!["lockfiles".to_string()])
+        );
     }
 
     #[cfg(unix)]

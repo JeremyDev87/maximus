@@ -3,7 +3,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use maximus_core::{make_finding, FindingInput, ProjectSnapshot, Severity};
+use maximus_core::{
+    is_ignored_project_path_from_root, make_finding, FindingInput, ProjectSnapshot, Severity,
+};
 
 use crate::check_outcome::CheckOutcome;
 
@@ -37,10 +39,30 @@ const KNOWN_LOCKFILES: &[&str] = &[
 ];
 
 pub fn run_lockfiles_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
+    run_lockfiles_check_with_ignore(project, &[])
+}
+
+pub fn run_lockfiles_check_with_ignore(
+    project: &ProjectSnapshot,
+    ignored_patterns: &[String],
+) -> io::Result<CheckOutcome> {
+    run_lockfiles_check_with_ignore_root(project, ignored_patterns, &project.root_dir)
+}
+
+pub fn run_lockfiles_check_with_ignore_root(
+    project: &ProjectSnapshot,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
     let mut lockfiles_by_directory = BTreeMap::new();
 
-    collect_lockfiles(&project.root_dir, &mut lockfiles_by_directory)?;
+    collect_lockfiles(
+        &project.root_dir,
+        ignored_patterns,
+        ignore_root,
+        &mut lockfiles_by_directory,
+    )?;
 
     for (directory, mut lockfiles) in lockfiles_by_directory {
         if lockfiles.len() <= 1 {
@@ -50,7 +72,10 @@ pub fn run_lockfiles_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome
         lockfiles.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
         let lockfile_names = lockfiles
             .iter()
-            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
             .collect::<Vec<_>>();
 
         findings.push(make_finding(FindingInput {
@@ -84,13 +109,28 @@ pub fn run_lockfiles_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome
 
 fn collect_lockfiles(
     root_dir: &Path,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
     lockfiles_by_directory: &mut BTreeMap<PathBuf, Vec<PathBuf>>,
 ) -> io::Result<()> {
-    visit_directory(root_dir, lockfiles_by_directory)
+    if is_ignored_project_path_from_root(ignore_root, root_dir, ignored_patterns) {
+        return Ok(());
+    }
+
+    visit_directory(
+        root_dir,
+        root_dir,
+        ignored_patterns,
+        ignore_root,
+        lockfiles_by_directory,
+    )
 }
 
 fn visit_directory(
+    root_dir: &Path,
     directory: &Path,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
     lockfiles_by_directory: &mut BTreeMap<PathBuf, Vec<PathBuf>>,
 ) -> io::Result<()> {
     let mut child_directories = Vec::new();
@@ -115,13 +155,18 @@ fn visit_directory(
         let path = entry.path();
 
         if file_type.is_dir() {
-            if !should_ignore_directory(&entry.file_name()) {
+            if !should_ignore_directory(&entry.file_name())
+                && !is_ignored_project_path_from_root(ignore_root, &path, ignored_patterns)
+            {
                 child_directories.push(path);
             }
             continue;
         }
 
         if !file_type.is_file() {
+            continue;
+        }
+        if is_ignored_project_path_from_root(ignore_root, &path, ignored_patterns) {
             continue;
         }
 
@@ -139,7 +184,13 @@ fn visit_directory(
 
     child_directories.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
     for child_directory in child_directories {
-        if let Err(error) = visit_directory(&child_directory, lockfiles_by_directory) {
+        if let Err(error) = visit_directory(
+            root_dir,
+            &child_directory,
+            ignored_patterns,
+            ignore_root,
+            lockfiles_by_directory,
+        ) {
             if should_skip_traversal_error(&error) {
                 continue;
             }

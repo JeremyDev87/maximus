@@ -1,5 +1,6 @@
 mod args;
 mod exit_codes;
+mod fail_policy;
 mod report_diff;
 mod report_json;
 mod report_text;
@@ -11,17 +12,24 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::process;
 
-use maximus_checks::audit_project;
+use maximus_checks::{audit_project_with_config_root, registered_check_ids};
 use maximus_core::{
-    apply_fixes, preview_fixes, select_fix_plans, select_planned_fixes, AuditResult, FixPlan,
-    FixSelector,
+    apply_fixes, load_maximus_config, preview_fixes, select_fix_plans, select_planned_fixes,
+    AuditResult, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
 };
 
 use crate::args::{parse_args, ArgsError, Flags};
 
+#[derive(Debug, Clone)]
+struct ResolvedConfig {
+    config: MaximusConfig,
+    ignore_root: std::path::PathBuf,
+}
+
 #[derive(Debug)]
 enum CliError {
     Args(ArgsError),
+    Config(LoadConfigError),
     Io(io::Error),
     Json(serde_json::Error),
     InvalidArguments(String),
@@ -32,11 +40,15 @@ impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Args(error) => write!(f, "{error}"),
+            Self::Config(error) => write!(f, "{error}"),
             Self::Io(error) => write!(f, "{error}"),
             Self::Json(error) => write!(f, "{error}"),
             Self::InvalidArguments(message) => write!(f, "{message}"),
             Self::UnknownCommand(command) => {
-                write!(f, "Unknown command \"{command}\". Run \"maximus help\" for usage.")
+                write!(
+                    f,
+                    "Unknown command \"{command}\". Run \"maximus help\" for usage."
+                )
             }
         }
     }
@@ -53,6 +65,12 @@ impl From<ArgsError> for CliError {
 impl From<io::Error> for CliError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
+    }
+}
+
+impl From<LoadConfigError> for CliError {
+    fn from(value: LoadConfigError) -> Self {
+        Self::Config(value)
     }
 }
 
@@ -80,29 +98,43 @@ where
     S: Into<std::ffi::OsString>,
 {
     let parsed = parse_args(argv)?;
-    validate_command_flags(parsed.command.as_deref(), &parsed.flags)?;
+    let show_default_help = parsed.command.is_none() && parsed.flags == Flags::default();
 
-    if parsed.command.is_none()
-        || parsed.command.as_deref() == Some("help")
-        || parsed.flags.help
-    {
+    if show_default_help || parsed.command.as_deref() == Some("help") || parsed.flags.help {
         println!("{}", report_text::format_help());
         return Ok(exit_codes::SUCCESS);
     }
 
+    validate_command_flags(parsed.command.as_deref(), &parsed.flags)?;
+
+    if !matches!(
+        parsed.command.as_deref(),
+        Some("audit") | Some("doctor") | Some("fix")
+    ) {
+        return Err(CliError::UnknownCommand(
+            parsed.command.as_deref().unwrap_or_default().to_string(),
+        ));
+    }
+
     let target_dir = resolve_target_dir(parsed.args.first().map(|value| value.as_os_str()))?;
+    let config = resolve_effective_config(&target_dir, &parsed.flags)?;
 
     match parsed.command.as_deref() {
-        Some("audit") => run_audit_command(&target_dir, &parsed.flags),
-        Some("doctor") => run_doctor_command(&target_dir, &parsed.flags),
-        Some("fix") => run_fix_command(&target_dir, &parsed.flags),
+        Some("audit") => run_audit_command(&target_dir, &parsed.flags, &config),
+        Some("doctor") => run_doctor_command(&target_dir, &parsed.flags, &config),
+        Some("fix") => run_fix_command(&target_dir, &parsed.flags, &config),
         Some(command) => Err(CliError::UnknownCommand(command.to_string())),
         None => Ok(exit_codes::SUCCESS),
     }
 }
 
-fn run_audit_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
-    let audited = audit_project(target_dir)?;
+fn run_audit_command(
+    target_dir: &std::path::Path,
+    flags: &Flags,
+    resolved: &ResolvedConfig,
+) -> Result<i32, CliError> {
+    let audited =
+        audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
 
     if flags.json {
         println!("{}", report_json::render_audit_result(&audited.result)?);
@@ -110,11 +142,24 @@ fn run_audit_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32,
         println!("{}", report_text::format_audit_report(&audited.result));
     }
 
-    Ok(exit_codes::audit_exit_code(&audited.result.summary))
+    Ok(fail_policy::exit_code(
+        &audited.result.summary,
+        resolved
+            .config
+            .report
+            .fail_on
+            .as_ref()
+            .unwrap_or(&FailOnLevel::Warn),
+    ))
 }
 
-fn run_doctor_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
-    let audited = audit_project(target_dir)?;
+fn run_doctor_command(
+    target_dir: &std::path::Path,
+    flags: &Flags,
+    resolved: &ResolvedConfig,
+) -> Result<i32, CliError> {
+    let audited =
+        audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
 
     if flags.json {
         println!("{}", report_json::render_audit_result(&audited.result)?);
@@ -122,11 +167,24 @@ fn run_doctor_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32
         println!("{}", report_text::format_doctor_report(&audited.result));
     }
 
-    Ok(exit_codes::audit_exit_code(&audited.result.summary))
+    Ok(fail_policy::exit_code(
+        &audited.result.summary,
+        resolved
+            .config
+            .report
+            .fail_on
+            .as_ref()
+            .unwrap_or(&FailOnLevel::Warn),
+    ))
 }
 
-fn run_fix_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, CliError> {
-    let initial = audit_project(target_dir)?;
+fn run_fix_command(
+    target_dir: &std::path::Path,
+    flags: &Flags,
+    resolved: &ResolvedConfig,
+) -> Result<i32, CliError> {
+    let initial =
+        audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
     if initial.planned_fixes.len() != initial.result.fixes.len() {
         return Err(CliError::Io(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -159,7 +217,7 @@ fn run_fix_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, C
     let final_result = if flags.dry_run {
         selected_initial.clone()
     } else {
-        audit_project(target_dir)?.result
+        audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?.result
     };
 
     if flags.json {
@@ -197,7 +255,79 @@ fn run_fix_command(target_dir: &std::path::Path, flags: &Flags) -> Result<i32, C
         );
     }
 
-    Ok(exit_codes::fix_exit_code(&final_result.summary))
+    Ok(fail_policy::exit_code(
+        &final_result.summary,
+        resolved
+            .config
+            .report
+            .fail_on
+            .as_ref()
+            .unwrap_or(&FailOnLevel::Warn),
+    ))
+}
+
+fn resolve_effective_config(
+    target_dir: &std::path::Path,
+    flags: &Flags,
+) -> Result<ResolvedConfig, CliError> {
+    let loaded = load_maximus_config(target_dir)?;
+    let ignore_root = loaded
+        .as_ref()
+        .and_then(|loaded| loaded.path.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| target_dir.to_path_buf());
+    let mut config = loaded.map(|loaded| loaded.config).unwrap_or_default();
+
+    validate_check_ids("only", &config.checks.only)?;
+    validate_check_ids("skip", &config.checks.skip)?;
+
+    if flags.only_checks.is_some() || flags.skip_checks.is_some() {
+        config.checks = maximus_core::CheckFilterConfig::default();
+    }
+
+    if let Some(only_checks) = &flags.only_checks {
+        config.checks.only = only_checks.clone();
+    }
+    if let Some(skip_checks) = &flags.skip_checks {
+        config.checks.skip = skip_checks.clone();
+    }
+    if let Some(fail_on) = &flags.fail_on {
+        config.report.fail_on = Some(parse_fail_on_level(fail_on)?);
+    }
+
+    validate_check_ids("only", &config.checks.only)?;
+    validate_check_ids("skip", &config.checks.skip)?;
+
+    Ok(ResolvedConfig {
+        config,
+        ignore_root,
+    })
+}
+
+fn parse_fail_on_level(value: &str) -> Result<FailOnLevel, CliError> {
+    match value {
+        "error" => Ok(FailOnLevel::Error),
+        "warn" => Ok(FailOnLevel::Warn),
+        "info" => Ok(FailOnLevel::Info),
+        "none" => Ok(FailOnLevel::None),
+        _ => Err(CliError::InvalidArguments(format!(
+            "Unknown fail-on level \"{value}\". Use one of: error, warn, info, none."
+        ))),
+    }
+}
+
+fn validate_check_ids(source: &str, ids: &[String]) -> Result<(), CliError> {
+    let known_ids = registered_check_ids();
+
+    for id in ids {
+        if !known_ids.contains(&id.as_str()) {
+            return Err(CliError::InvalidArguments(format!(
+                "Unknown check id \"{id}\" in {source}. Use one of: {}.",
+                known_ids.join(", ")
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), CliError> {

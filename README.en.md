@@ -22,7 +22,7 @@ Maximus now uses the Rust runtime as its canonical implementation.
 
 - The root `maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
 - The user-facing command surface stays the same: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
-- `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. It is still bundled in the npm package as a compatibility fallback when optional native runtime packages are unavailable, but it is no longer treated as the canonical runtime.
+- `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a compatibility fallback for legacy-compatible commands; Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
 - `docs/plan/001` through `012` are Rust v1 spec inputs, and `docs/plan/013+` plus the older JS backlog are no longer the default implementation lane.
 
 See the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) for the transition boundary, phase map, and contributor rules.
@@ -109,7 +109,7 @@ cargo test --workspace
 node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
-`node ./bin/maximus.js` prefers the Rust CLI built inside the repository (`target/debug/maximus`, `target/release/maximus`). If you do not have a local binary yet, build one with `cargo build -p maximus-cli`. `src/**/*.js` remains as frozen reference code and is still bundled in the npm wrapper package as a compatibility fallback for installs without optional native packages.
+`node ./bin/maximus.js` prefers the Rust CLI built inside the repository (`target/debug/maximus`, `target/release/maximus`) and otherwise looks for an installed platform-specific Rust binary. If you do not have a local binary yet, build one with `cargo build -p maximus-cli`. When no Rust runtime is available, `src/**/*.js` still provides a compatibility fallback for the basic `audit` / `doctor` / `fix --dry-run` flow, but config auto-loading and Rust-only flags such as `--only`, `--skip`, and `--fail-on` still require the native Rust runtime.
 
 ## Recommended For
 
