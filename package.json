@@ -1,7 +1,7 @@
 {
   "name": "maximus",
   "version": "0.1.0",
-  "description": "Bring order to chaotic configs.",
+  "description": "Thin npm launcher for the Maximus Rust runtime.",
   "author": "JeremyDev87",
   "type": "module",
   "bin": {
@@ -11,6 +11,8 @@
     "bin",
     "src",
     "README.md",
+    "README.en.md",
+    "CONTRIBUTING.md",
     "LICENSE"
   ],
   "optionalDependencies": {
@@ -40,6 +42,10 @@
   "keywords": [
     "cli",
     "config",
+    "rust",
+    "audit",
+    "doctor",
+    "fix",
     "eslint",
     "prettier",
     "tsconfig",

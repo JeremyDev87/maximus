@@ -4,17 +4,16 @@ Thanks for helping improve Maximus.
 
 This project aims to make config-heavy repositories easier to understand, safer to change, and faster to onboard into. Good contributions usually improve one of those three outcomes.
 
-## Runtime Direction
+## Canonical Runtime
 
-Maximus is currently in a runtime transition period.
+Maximus now treats Rust as the canonical runtime for the published CLI, the npm wrapper, and the GitHub Action.
 
-- The executable code in this repository still runs as a Node.js CLI today.
-- The canonical runtime direction is a Rust rewrite.
-- Until the Rust cutover lands, the JS implementation remains the reference implementation for behavior and golden output generation.
-- `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to extend the JS codebase directly.
-- `docs/plan/013+` and the older JS backlog are deferred until the Rust cutover is complete.
+- `bin/maximus.js` is a thin launcher that prefers repository Rust builds and installed platform-specific Rust binaries.
+- `src/**/*.js` stays in the repository as frozen reference code for parity checks, golden output generation, and roadmap context. The npm package still carries it as a compatibility fallback, but it is no longer the canonical runtime.
+- `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to expand the JS codebase directly.
+- `docs/plan/013+` and the older JS backlog are not the default implementation lane while the rewrite family is still being closed out.
 
-Read [docs/runtime-transition.md](docs/runtime-transition.md) before starting any roadmap-sized work.
+Read [docs/runtime-transition.md](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) before starting any roadmap-sized work.
 
 ## Ways to Contribute
 
@@ -42,21 +41,20 @@ If you are working from the local planning docs, use the following rule set:
 git clone https://github.com/JeremyDev87/maximus.git
 cd maximus
 npm test
-node ./bin/maximus.js audit
-node ./bin/maximus.js fix --dry-run
+cargo test --workspace
+node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
 ## Project Shape
 
 ```text
-bin/              CLI entrypoint
-src/checks/       config analyzers
-src/core/         discovery, aggregation, reporting, fix orchestration
-src/lib/          parsing and filesystem helpers
-test/             regression tests
+bin/              thin npm launcher to the Rust runtime
+crates/           Rust workspace and CLI/library implementation
+src/              frozen JS reference implementation
+test/             regression tests and wrapper/runtime checks
 ```
 
-Current repository layout reflects the Node.js reference runtime. Rust crates and workspace files will be introduced as the transition proceeds; until then, changes should avoid implying that JS backlog expansion is the default roadmap.
+Current repository layout keeps the JS source tree for reference, but new runtime or distribution behavior should treat Rust as the source of truth.
 
 ## Contribution Guidelines
 
@@ -65,7 +63,7 @@ Current repository layout reflects the Node.js reference runtime. Rust crates an
 - Add or update tests when changing detection or fix behavior.
 - Update `README.md` if the user-facing behavior or supported checks change.
 - Avoid destructive fixes unless the user can clearly preview and understand them.
-- If the change belongs to the rewrite roadmap, make sure the wording in README, contributing docs, and transition docs stays aligned.
+- If the change belongs to the rewrite roadmap, keep README, `README.en.md`, `CONTRIBUTING.md`, package metadata, and transition docs aligned.
 
 ## Testing
 
@@ -73,8 +71,8 @@ Before opening a pull request, run:
 
 ```bash
 npm test
-node ./bin/maximus.js audit
-node ./bin/maximus.js fix --dry-run
+cargo test --workspace
+node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
 If your change affects a specific detector, add a regression test covering the edge case you fixed.
@@ -103,4 +101,4 @@ Small, well-tested pull requests are much easier to review and merge quickly.
 
 ## Security
 
-If you discover a security issue, please do not open a public issue. Follow the private reporting instructions in [SECURITY.md](SECURITY.md).
+If you discover a security issue, please do not open a public issue. Follow the private reporting instructions in [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/master/SECURITY.md).

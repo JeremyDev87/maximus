@@ -18,7 +18,7 @@ try {
   if (runtime.kind === "binary") {
     await runBinary(runtime.command, cliArgs);
   } else {
-    await runJsReference(cliArgs);
+    await runFrozenJsReference(cliArgs);
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -40,7 +40,7 @@ async function resolveRuntime() {
     }
   }
 
-  if (await hasJsReferenceRuntime()) {
+  if (await hasFrozenJsReferenceRuntime()) {
     return { kind: "js" };
   }
 
@@ -134,7 +134,7 @@ async function resolveRepoBinary() {
   return null;
 }
 
-async function hasJsReferenceRuntime() {
+async function hasFrozenJsReferenceRuntime() {
   try {
     await access(path.join(repoRoot, "src", "cli.js"));
     return true;
@@ -157,8 +157,9 @@ async function isPlaceholderRuntime(binaryPath) {
 
 function formatMissingRuntimeMessage(platformPackage) {
   return [
-    `No runtime is available for ${platformPackage.label}.`,
-    `Expected optional dependency "${platformPackage.packageName}" to be installed.`,
+    `No Rust runtime is available for ${platformPackage.label}.`,
+    `Expected optional dependency "${platformPackage.packageName}" to be installed or a local Cargo build to exist in target/debug or target/release.`,
+    "The bundled JS compatibility fallback was not available either.",
     "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
   ].join(" ");
 }
@@ -186,7 +187,7 @@ async function runBinary(command, args) {
   });
 }
 
-async function runJsReference(args) {
+async function runFrozenJsReference(args) {
   const { runCli } = await import("../src/cli.js");
   await runCli(args);
   process.exitCode = process.exitCode ?? 0;
