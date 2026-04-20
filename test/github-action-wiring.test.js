@@ -5,7 +5,7 @@ import { validateRustReleaseWiring } from "../scripts/validate-rust-release-wiri
 test("Rust release wiring validation passes for the checked-in GitHub automation files", async () => {
   const summary = await validateRustReleaseWiring(process.cwd());
 
-  assert.equal(summary.checkedFiles.length, 7);
+  assert.equal(summary.checkedFiles.length, 10);
   assert.deepEqual(summary.platformPackages, [
     "maximus-darwin-arm64",
     "maximus-darwin-x64",

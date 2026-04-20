@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
+import process from "node:process";
+import test from "node:test";
+import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { assertInstalledNativeRuntime } from "../scripts/assert-installed-native-runtime.mjs";
+
+test("installed native runtime assertion accepts a non-placeholder runtime package on supported hosts", async (t) => {
+  const runtimePackage = currentRuntimePackage();
+  if (!runtimePackage) {
+    t.skip("current platform is intentionally unsupported by the runtime assertion");
+    return;
+  }
+
+  const installRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-installed-runtime-ok-"));
+  t.after(async () => {
+    await rm(installRoot, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(installRoot, "node_modules", runtimePackage, "bin"), {
+    recursive: true,
+  });
+  const binaryPath = path.join(installRoot, "node_modules", runtimePackage, "bin", "maximus");
+  await writeFile(binaryPath, "#!/bin/sh\necho native-runtime\n", "utf8");
+  await chmod(binaryPath, 0o755);
+
+  const result = await assertInstalledNativeRuntime(installRoot);
+
+  assert.deepEqual(result, {
+    packageName: runtimePackage,
+    binaryPath,
+  });
+});
+
+test("installed native runtime assertion rejects placeholder runtime binaries", async (t) => {
+  const runtimePackage = currentRuntimePackage();
+  if (!runtimePackage) {
+    t.skip("current platform is intentionally unsupported by the runtime assertion");
+    return;
+  }
+
+  const installRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-installed-runtime-placeholder-"));
+  t.after(async () => {
+    await rm(installRoot, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(installRoot, "node_modules", runtimePackage, "bin"), {
+    recursive: true,
+  });
+  const binaryPath = path.join(installRoot, "node_modules", runtimePackage, "bin", "maximus");
+  await cp(path.join(process.cwd(), "npm", runtimePackage, "bin", "maximus"), binaryPath);
+  await chmod(binaryPath, 0o755);
+
+  await assert.rejects(
+    () => assertInstalledNativeRuntime(installRoot),
+    /placeholder binary/,
+  );
+});
+
+function currentRuntimePackage() {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "maximus-darwin-arm64";
+  }
+
+  if (process.platform === "darwin" && process.arch === "x64") {
+    return "maximus-darwin-x64";
+  }
+
+  if (
+    process.platform === "linux" &&
+    process.arch === "arm64" &&
+    process.report?.getReport?.().header?.glibcVersionRuntime
+  ) {
+    return "maximus-linux-arm64-gnu";
+  }
+
+  if (
+    process.platform === "linux" &&
+    process.arch === "x64" &&
+    process.report?.getReport?.().header?.glibcVersionRuntime
+  ) {
+    return "maximus-linux-x64-gnu";
+  }
+
+  return null;
+}

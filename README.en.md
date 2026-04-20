@@ -90,7 +90,7 @@ Findings
 After the release tags are published, you can use the same npm-wrapper entrypoint from GitHub Actions as well.
 
 ```yaml
-- uses: JeremyDev87/maximus@v0
+- uses: JeremyDev87/maximus@<release-tag>
   with:
     command: audit
     path: .
@@ -100,6 +100,7 @@ Default inputs:
 
 - `command`: `audit`, `doctor`, `fix`
 - `path`: project path to inspect, default `.`
+- `<release-tag>`: replace this with a published release tag, for example `v0.1.0`
 
 ## Local Development
 

@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to publish. Select the same tag ref before running.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,8 +18,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-release-context:
+    name: Validate release context
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      package_version: ${{ steps.release_context.outputs.package_version }}
+      release_tag: ${{ steps.release_context.outputs.release_tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Resolve release tag from release event
+        if: github.event_name == 'release'
+        id: release_tag_from_event
+        shell: bash
+        env:
+          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          printf 'value=%s\n' "$RELEASE_EVENT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release tag from workflow input
+        if: github.event_name == 'workflow_dispatch'
+        id: release_tag_from_input
+        shell: bash
+        env:
+          DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          printf 'value=%s\n' "$DISPATCH_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Assert release ref and package version alignment
+        id: release_context
+        shell: bash
+        env:
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_GITHUB_REF: ${{ github.ref }}
+          RELEASE_GITHUB_REF_NAME: ${{ github.ref_name }}
+          RELEASE_SELECTED_TAG: ${{ github.event_name == 'release' && steps.release_tag_from_event.outputs.value || steps.release_tag_from_input.outputs.value }}
+        run: |
+          node ./scripts/assert-release-workflow-context.mjs \
+            "$RELEASE_EVENT_NAME" \
+            "$RELEASE_GITHUB_REF" \
+            "$RELEASE_GITHUB_REF_NAME" \
+            "$RELEASE_SELECTED_TAG"
+
   build-platform-binaries:
     name: Build platform binaries
+    needs: validate-release-context
     uses: ./.github/workflows/rust-release-binaries.yml
 
   publish-platform-packages:
@@ -80,10 +136,24 @@ jobs:
         run: npm publish . --access public
 
   smoke-published-wrapper:
-    name: Smoke published wrapper
-    needs: publish-wrapper
-    runs-on: ubuntu-latest
+    name: Smoke published wrapper (${{ matrix.runner.platform }})
+    needs:
+      - publish-wrapper
+      - validate-release-context
+    runs-on: ${{ matrix.runner.label }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - label: ubuntu-24.04
+            platform: linux-x64-gnu
+          - label: ubuntu-24.04-arm
+            platform: linux-arm64-gnu
+          - label: macos-15-intel
+            platform: darwin-x64
+          - label: macos-14
+            platform: darwin-arm64
 
     steps:
       - name: Check out repository
@@ -93,13 +163,6 @@ jobs:
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: "24"
-
-      - name: Read package version
-        id: package_version
-        shell: bash
-        run: |
-          version=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')
-          echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install published wrapper
         shell: bash
@@ -111,7 +174,13 @@ jobs:
           export npm_config_audit=false
           export npm_config_fund=false
           export npm_config_update_notifier=false
-          npm install --no-package-lock --prefix "$install_root" "maximus@${{ steps.package_version.outputs.value }}"
+          npm install --no-package-lock --prefix "$install_root" "maximus@${{ needs.validate-release-context.outputs.package_version }}"
+
+      - name: Assert published native runtime
+        shell: bash
+        run: |
+          install_root="$RUNNER_TEMP/maximus-release-smoke"
+          node ./scripts/assert-installed-native-runtime.mjs "$install_root"
 
       - name: Smoke published wrapper audit
         shell: bash
@@ -122,6 +191,7 @@ jobs:
   action-smoke:
     name: Smoke official GitHub Action
     needs:
+      - validate-release-context
       - publish-platform-packages
       - publish-wrapper
     uses: ./.github/workflows/action-smoke.yml

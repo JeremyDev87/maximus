@@ -90,7 +90,7 @@ Findings
 릴리즈 태그 이후에는 같은 npm wrapper 진입점을 GitHub Action으로도 사용할 수 있습니다.
 
 ```yaml
-- uses: JeremyDev87/maximus@v0
+- uses: JeremyDev87/maximus@<release-tag>
   with:
     command: audit
     path: .
@@ -100,6 +100,7 @@ Findings
 
 - `command`: `audit`, `doctor`, `fix`
 - `path`: 검사할 프로젝트 경로, 기본값 `.`
+- `<release-tag>`: publish된 릴리즈 태그로 바꿔 넣어야 합니다. 예: `v0.1.0`
 
 ## 로컬 개발
 
