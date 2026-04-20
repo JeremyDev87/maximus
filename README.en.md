@@ -16,15 +16,14 @@ Maximus is a CLI that audits scattered project configuration files, untangles co
 
 Modern projects stand on top of countless config layers like `tsconfig`, `eslint`, `prettier`, `vite`, `jest`, `next.config`, and `.env`. Maximus restores order when that setup starts to drift.
 
-## Runtime Transition
+## Canonical Runtime
 
-Maximus is now prioritizing a Rust rewrite as its canonical runtime direction instead of continuing the JS backlog as the primary implementation path.
+Maximus now uses the Rust runtime as its canonical implementation.
 
-- The currently shipped CLI and the executable code in this repository still run on Node.js today.
+- The root `maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
 - The user-facing command surface stays the same: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
-- Until the cutover lands, the current JS runtime stays as the reference implementation.
-- `docs/plan/001` through `012` are no longer treated as direct JS implementation tickets; they are Rust v1 spec inputs.
-- `docs/plan/013+` and the older JS backlog stay deferred until the Rust cutover is complete.
+- `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. It is still bundled in the npm package as a compatibility fallback when optional native runtime packages are unavailable, but it is no longer treated as the canonical runtime.
+- `docs/plan/001` through `012` are Rust v1 spec inputs, and `docs/plan/013+` plus the older JS backlog are no longer the default implementation lane.
 
 See the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) for the transition boundary, phase map, and contributor rules.
 
@@ -87,7 +86,7 @@ Findings
 
 ## GitHub Action
 
-After the release tags are published, you can use the same npm-wrapper entrypoint from GitHub Actions as well.
+After release tags are published, GitHub Actions use the same npm-wrapper entrypoint as well.
 
 ```yaml
 - uses: JeremyDev87/maximus@<release-tag>
@@ -106,11 +105,11 @@ Default inputs:
 
 ```bash
 npm test
-node ./bin/maximus.js audit
-node ./bin/maximus.js fix --dry-run
+cargo test --workspace
+node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
-These local commands continue to validate the current Node.js reference implementation. Even after the Rust bootstrap starts, user-facing command examples stay in the `npx maximus ...` form.
+`node ./bin/maximus.js` prefers the Rust CLI built inside the repository (`target/debug/maximus`, `target/release/maximus`). If you do not have a local binary yet, build one with `cargo build -p maximus-cli`. `src/**/*.js` remains as frozen reference code and is still bundled in the npm wrapper package as a compatibility fallback for installs without optional native packages.
 
 ## Recommended For
 
@@ -120,7 +119,7 @@ These local commands continue to validate the current Node.js reference implemen
 
 ## Contributing
 
-Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the active priority is the Rust rewrite family rather than direct JS backlog expansion.
+Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the canonical runtime and distribution surface are now Rust-first.
 
 ## Security
 

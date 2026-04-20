@@ -16,15 +16,14 @@ Maximus は、プロジェクトのあちこちに散らばった設定ファイ
 
 現代のプロジェクトは `tsconfig`、`eslint`、`prettier`、`vite`、`jest`、`next.config`、`.env` など数多くの設定の上に成り立っています。Maximus は、その構成が崩れ始めたときに秩序を取り戻します。
 
-## ランタイム移行
+## Canonical Runtime
 
-Maximus は現在、JS backlog の拡張を主な実装経路として続けるのではなく、Rust への再実装を canonical runtime の方向として優先しています。
+Maximus は現在、Rust runtime を canonical implementation として使用します。
 
-- 現在公開されている CLI と、このリポジトリ内の実行コードはまだ Node.js 上で動作しています。
+- ルートの `maximus` npm package は thin launcher であり、実際の実行はプラットフォーム別の prebuilt Rust binary に委譲されます。
 - ユーザー向けコマンドの表面は維持されます: `npx maximus audit`、`npx maximus doctor`、`npx maximus fix`
-- cutover が完了するまでは、現在の JS runtime は reference implementation として残ります。
-- `docs/plan/001` から `012` は、もはや JS 実装を直接拡張するためのチケットではなく、Rust v1 の spec input として扱います。
-- `docs/plan/013+` と既存の JS backlog は、Rust cutover が完了するまで deferred のままです。
+- `src/**/*.js` は parity 作業や比較のための frozen reference code としてリポジトリに残ります。optional native runtime package が入らないインストール向けの compatibility fallback として npm package にも同梱されますが、canonical runtime としては扱われません。
+- `docs/plan/001` から `012` は Rust v1 の spec input であり、`docs/plan/013+` と以前の JS backlog は、もはや既定の実装レーンではありません。
 
 移行境界、フェーズ構成、コントリビューター向けルールは [runtime transition ドキュメント](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) を参照してください。
 
@@ -89,11 +88,11 @@ Findings
 
 ```bash
 npm test
-node ./bin/maximus.js audit
-node ./bin/maximus.js fix --dry-run
+cargo test --workspace
+node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
-これらのローカルコマンドは、引き続き現在の Node.js reference implementation を検証します。Rust bootstrap が始まった後も、ユーザー向けのコマンド例は `npx maximus ...` の形を保ちます。
+`node ./bin/maximus.js` は、リポジトリ内でビルドされた Rust CLI（`target/debug/maximus`、`target/release/maximus`）を優先します。まだローカル binary がない場合は、`cargo build -p maximus-cli` で用意できます。`src/**/*.js` は frozen reference code として残り、optional native package がないインストール向けの compatibility fallback として npm wrapper package にも同梱されます。
 
 ## こんなチームにおすすめ
 
@@ -103,7 +102,7 @@ node ./bin/maximus.js fix --dry-run
 
 ## コントリビュート
 
-新しいチェックの追加、自動修正の安全性向上、false positive の削減などの貢献を歓迎します。まずは [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) と [runtime transition ドキュメント](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) を確認してください。現在の優先順位は JS backlog の直接拡張ではなく、Rust rewrite family です。
+新しいチェックの追加、自動修正の安全性向上、false positive の削減などの貢献を歓迎します。まずは [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) と [runtime transition ドキュメント](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) を確認してください。canonical runtime と配布表面は現在 Rust-first です。
 
 ## セキュリティ
 
