@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import { access, open, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
@@ -119,7 +120,15 @@ async function resolveInstalledBinary(packageName) {
     const packageJsonPath = require.resolve(`${packageName}/package.json`);
     const binaryPath = path.join(path.dirname(packageJsonPath), "bin", "maximus");
 
-    await access(binaryPath);
+    await access(binaryPath, fsConstants.X_OK);
+    if (!(await isAccessible(binaryPath, fsConstants.R_OK))) {
+      if (!(await probeExecutable(binaryPath))) {
+        return null;
+      }
+
+      return binaryPath;
+    }
+
     if (await isPlaceholderRuntime(binaryPath)) {
       return null;
     }
@@ -357,4 +366,43 @@ function formatCompatHelp() {
 function signalExitCode(signal) {
   const signalNumber = osConstants.signals?.[signal];
   return typeof signalNumber === "number" ? 128 + signalNumber : 1;
+}
+
+async function isAccessible(targetPath, mode) {
+  try {
+    await access(targetPath, mode);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function probeExecutable(binaryPath) {
+  return await new Promise((resolve) => {
+    const child = spawn(binaryPath, ["--help"], {
+      stdio: "ignore",
+    });
+    let settled = false;
+    const settle = (result) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      settle(false);
+    }, 1000);
+
+    child.on("error", () => {
+      clearTimeout(timeout);
+      settle(false);
+    });
+
+    child.on("exit", (code, signal) => {
+      clearTimeout(timeout);
+      settle(!signal && code === 0);
+    });
+  });
 }
