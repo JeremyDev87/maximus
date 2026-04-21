@@ -1,7 +1,7 @@
 {
   "name": "maximus",
   "version": "0.1.0",
-  "description": "Thin npm launcher for the Maximus Rust runtime.",
+  "description": "Canonical Rust runtime launcher for the Maximus CLI.",
   "author": "JeremyDev87",
   "type": "module",
   "bin": {
@@ -43,6 +43,8 @@
     "cli",
     "config",
     "rust",
+    "canonical-runtime",
+    "launcher",
     "audit",
     "doctor",
     "fix",

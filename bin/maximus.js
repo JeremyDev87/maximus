@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const cliArgs = process.argv.slice(2);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const frozenJsReferenceNote =
+  "Rust is the canonical Maximus runtime. The bundled JS reference is frozen and only kept as a temporary compatibility bridge for legacy-compatible commands.";
 
 try {
   const runtime = await resolveRuntime(cliArgs);
@@ -106,10 +108,10 @@ function hasGlibcRuntime() {
 
 function formatUnsupportedPlatformMessage() {
   if (process.platform === "linux" && !hasGlibcRuntime()) {
-    return "Linux musl is not supported yet. Maximus currently ships prebuilt Rust binaries only for Linux glibc and macOS. When no Rust runtime is available, the bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.";
+    return `Linux musl is not supported yet. Maximus currently ships prebuilt Rust binaries only for Linux glibc and macOS. ${frozenJsReferenceNote}`;
   }
 
-  return `Unsupported platform ${process.platform}-${process.arch}. Maximus currently ships prebuilt Rust binaries only for darwin-arm64, darwin-x64, linux-arm64-gnu, and linux-x64-gnu. When no Rust runtime is available, the bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.`;
+  return `Unsupported platform ${process.platform}-${process.arch}. Maximus currently ships prebuilt Rust binaries only for darwin-arm64, darwin-x64, linux-arm64-gnu, and linux-x64-gnu. ${frozenJsReferenceNote}`;
 }
 
 async function resolveInstalledBinary(packageName) {
@@ -157,7 +159,7 @@ async function evaluateFrozenJsFallback(args) {
   if (parsed.unsupportedFlags.length > 0) {
     return {
       allowed: false,
-      reason: `A Rust runtime is required for options not supported by the frozen JS compatibility path: ${parsed.unsupportedFlags.join(", ")}.`,
+      reason: `A Rust runtime is required for options not supported by the frozen JS compatibility path: ${parsed.unsupportedFlags.join(", ")}. ${frozenJsReferenceNote}`,
     };
   }
 
@@ -165,7 +167,7 @@ async function evaluateFrozenJsFallback(args) {
   if (configPath) {
     return {
       allowed: false,
-      reason: `A Rust runtime is required when a Maximus config file is present (${configPath}).`,
+      reason: `A Rust runtime is required when a Maximus config file is present (${configPath}). ${frozenJsReferenceNote}`,
     };
   }
 
@@ -302,7 +304,7 @@ function formatMissingRuntimeMessage(platformPackage) {
   return [
     `No Rust runtime is available for ${platformPackage.label}.`,
     `Expected optional dependency "${platformPackage.packageName}" to be installed or a local Cargo build to exist in target/debug or target/release.`,
-    "The bundled JS reference can only serve legacy-compatible commands that do not require Rust-only config features.",
+    frozenJsReferenceNote,
     "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
   ].join(" ");
 }
@@ -348,7 +350,7 @@ function formatCompatHelp() {
     "  maximus fix [path] --dry-run [--json]",
     "  maximus help",
     "",
-    "When no Rust runtime is available, the bundled JS compatibility path can only execute legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, and `--fix-prefix` require the Rust runtime, and `fix` is only available with `--dry-run`.",
+    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, and `--fix-prefix` require the Rust runtime, and `fix` is only available with `--dry-run`.",
   ].join("\n");
 }
 
