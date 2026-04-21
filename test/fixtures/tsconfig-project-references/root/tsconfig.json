@@ -1,0 +1,8 @@
+{
+  "references": [
+    { "path": "../pkg-a" },
+    { "path": "../pkg-b" },
+    { "path": "../missing" },
+    { "path": "../pkg-c/tsconfig.build.json" }
+  ]
+}

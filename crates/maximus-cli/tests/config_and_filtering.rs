@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -569,9 +571,137 @@ fn broken_config_is_reported_as_cli_error() {
         .expect("audit should run");
 
     assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let stderr = String::from_utf8(output.stderr.clone()).expect("stderr should be utf8");
     assert!(stderr.contains("Maximus failed:"));
     assert!(stderr.contains(&config_path.to_string_lossy().to_string()));
+}
+
+#[test]
+fn composite_project_reference_is_blocking_under_fail_on_error() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        fixture.path().join("tsconfig.json"),
+        r#"
+        {
+          "references": [
+            { "path": "./packages/pkg-a" }
+          ]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("packages/pkg-a/tsconfig.json"),
+        r#"{ "compilerOptions": { "declaration": true } }"#,
+    );
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--fail-on",
+            "error",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "severity"
+        ),
+        "error"
+    );
+    assert!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        )
+        .contains(":composite")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_project_reference_becomes_a_finding_instead_of_a_cli_error() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let target_path = fixture.path().join("packages/pkg-a/tsconfig.json");
+
+    write(
+        fixture.path().join("root/tsconfig.json"),
+        r#"
+        {
+          "references": [
+            { "path": "../packages/pkg-a" }
+          ]
+        }
+        "#,
+    );
+    write(&target_path, r#"{ "compilerOptions": { "composite": true } }"#);
+
+    let original_permissions = fs::metadata(&target_path)
+        .expect("target metadata should exist")
+        .permissions();
+    let mut unreadable_permissions = original_permissions.clone();
+    unreadable_permissions.set_mode(0o000);
+    fs::set_permissions(&target_path, unreadable_permissions)
+        .expect("target permissions should update");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().join("root").to_string_lossy().as_ref(),
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    let mut restore_permissions = original_permissions;
+    restore_permissions.set_mode(0o644);
+    fs::set_permissions(&target_path, restore_permissions)
+        .expect("target permissions should restore");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr = String::from_utf8(output.stderr.clone()).expect("stderr should be utf8");
+    assert!(
+        stderr.is_empty(),
+        "permission failures should be reported as findings, not fatal CLI errors: {stderr}"
+    );
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        )
+        .contains(":unreadable")
+    );
+    assert_eq!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "severity"
+        ),
+        "error"
+    );
 }
 
 #[test]
