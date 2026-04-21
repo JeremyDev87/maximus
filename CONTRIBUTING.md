@@ -29,6 +29,8 @@ For larger features or behavior changes, open an issue first so we can agree on 
 
 For small fixes, feel free to open a pull request directly.
 
+If you are adding or changing a checker, read [docs/architecture/checker-authoring.md](https://github.com/JeremyDev87/maximus/blob/master/docs/architecture/checker-authoring.md) first. It describes the current Rust crate layout, registry, and test locations that this repository uses today.
+
 If you are working from the local planning docs, use the following rule set:
 
 - Treat `docs/plan/001` through `012` as the source of truth for Rust v1 objectives, target outcomes, public interface changes, tests and acceptance, and done criteria.
