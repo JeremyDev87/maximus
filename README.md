@@ -124,6 +124,8 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 
 새로운 점검기 추가, 자동 수정 안전성 개선, false positive 감소 같은 기여를 환영합니다. 다만 canonical runtime과 배포 표면은 이제 Rust 기준이며, `src/**/*.js`는 frozen reference로 유지됩니다. 기여 시작 전에는 [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md)와 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)를 먼저 확인해 주세요.
 
+체커를 추가하거나 기존 checker의 연결 구조를 확인할 때는 [checker authoring 아키텍처 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/architecture/checker-authoring.md)도 함께 보시면 현재 Rust crate 경계를 빠르게 맞출 수 있습니다.
+
 ## 보안
 
 보안 이슈가 의심된다면 공개 이슈부터 열지 말고 [SECURITY.md](https://github.com/JeremyDev87/maximus/blob/master/SECURITY.md)의 비공개 신고 절차를 따라 주세요.
