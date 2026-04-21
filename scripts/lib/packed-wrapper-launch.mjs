@@ -15,6 +15,7 @@ export async function resolvePackedWrapperLaunch(installRoot) {
   const packageEntrypointPath = path.join(
     installRoot,
     "node_modules",
+    "@jeremyfellaz",
     "maximus",
     "bin",
     "maximus.js",
@@ -29,7 +30,7 @@ export async function resolvePackedWrapperLaunch(installRoot) {
   throw new Error(
     [
       `Packed install at "${installRoot}" did not expose a runnable Maximus entrypoint.`,
-      'Neither "node_modules/.bin/maximus" nor "node_modules/maximus/bin/maximus.js" exists.',
+      'Neither "node_modules/.bin/maximus" nor "node_modules/@jeremyfellaz/maximus/bin/maximus.js" exists.',
     ].join(" "),
   );
 }

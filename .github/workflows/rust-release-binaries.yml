@@ -17,13 +17,17 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-24.04
-            package_name: maximus-linux-x64-gnu
+            package_dir: maximus-linux-x64-gnu
+            package_name: "@jeremyfellaz/maximus-linux-x64-gnu"
           - runner: ubuntu-24.04-arm
-            package_name: maximus-linux-arm64-gnu
+            package_dir: maximus-linux-arm64-gnu
+            package_name: "@jeremyfellaz/maximus-linux-arm64-gnu"
           - runner: macos-15-intel
-            package_name: maximus-darwin-x64
+            package_dir: maximus-darwin-x64
+            package_name: "@jeremyfellaz/maximus-darwin-x64"
           - runner: macos-14
-            package_name: maximus-darwin-arm64
+            package_dir: maximus-darwin-arm64
+            package_name: "@jeremyfellaz/maximus-darwin-arm64"
 
     steps:
       - name: Check out repository
@@ -38,7 +42,7 @@ jobs:
       - name: Stage artifact
         shell: bash
         run: |
-          artifact_root="$RUNNER_TEMP/${{ matrix.package_name }}"
+          artifact_root="$RUNNER_TEMP/${{ matrix.package_dir }}"
           mkdir -p "$artifact_root"
           cp ./target/release/maximus "$artifact_root/maximus"
           chmod +x "$artifact_root/maximus"
@@ -46,6 +50,6 @@ jobs:
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package_name }}
-          path: ${{ runner.temp }}/${{ matrix.package_name }}/maximus
+          name: ${{ matrix.package_dir }}
+          path: ${{ runner.temp }}/${{ matrix.package_dir }}/maximus
           if-no-files-found: error

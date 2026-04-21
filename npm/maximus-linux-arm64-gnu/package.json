@@ -1,5 +1,5 @@
 {
-  "name": "maximus-linux-arm64-gnu",
+  "name": "@jeremyfellaz/maximus-linux-arm64-gnu",
   "version": "0.1.0",
   "description": "Prebuilt Maximus Rust binary for linux arm64 glibc.",
   "license": "MIT",
@@ -10,6 +10,9 @@
   "homepage": "https://github.com/JeremyDev87/maximus#readme",
   "bugs": {
     "url": "https://github.com/JeremyDev87/maximus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "os": [
     "linux"

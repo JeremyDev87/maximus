@@ -81,11 +81,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package_name:
-          - maximus-darwin-arm64
-          - maximus-darwin-x64
-          - maximus-linux-arm64-gnu
-          - maximus-linux-x64-gnu
+        include:
+          - package_dir: maximus-darwin-arm64
+            package_name: "@jeremyfellaz/maximus-darwin-arm64"
+          - package_dir: maximus-darwin-x64
+            package_name: "@jeremyfellaz/maximus-darwin-x64"
+          - package_dir: maximus-linux-arm64-gnu
+            package_name: "@jeremyfellaz/maximus-linux-arm64-gnu"
+          - package_dir: maximus-linux-x64-gnu
+            package_name: "@jeremyfellaz/maximus-linux-x64-gnu"
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -102,17 +106,17 @@ jobs:
       - name: Download Rust release artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.package_name }}
-          path: ${{ runner.temp }}/${{ matrix.package_name }}
+          name: ${{ matrix.package_dir }}
+          path: ${{ runner.temp }}/${{ matrix.package_dir }}
 
       - name: Inject Rust binary into platform package
         shell: bash
         run: |
-          cp "${RUNNER_TEMP}/${{ matrix.package_name }}/maximus" "./npm/${{ matrix.package_name }}/bin/maximus"
-          chmod +x "./npm/${{ matrix.package_name }}/bin/maximus"
+          cp "${RUNNER_TEMP}/${{ matrix.package_dir }}/maximus" "./npm/${{ matrix.package_dir }}/bin/maximus"
+          chmod +x "./npm/${{ matrix.package_dir }}/bin/maximus"
 
       - name: Publish platform package
-        run: npm publish "./npm/${{ matrix.package_name }}" --access public
+        run: npm publish "./npm/${{ matrix.package_dir }}" --access public
 
   publish-wrapper:
     name: Publish npm wrapper
@@ -174,7 +178,7 @@ jobs:
           export npm_config_audit=false
           export npm_config_fund=false
           export npm_config_update_notifier=false
-          npm install --no-package-lock --prefix "$install_root" "maximus@${{ needs.validate-release-context.outputs.package_version }}"
+          npm install --no-package-lock --prefix "$install_root" "@jeremyfellaz/maximus@${{ needs.validate-release-context.outputs.package_version }}"
 
       - name: Assert published native runtime
         shell: bash
@@ -186,7 +190,7 @@ jobs:
         shell: bash
         run: |
           install_root="$RUNNER_TEMP/maximus-release-smoke"
-          node "$install_root/node_modules/maximus/bin/maximus.js" audit ./test/fixtures/clean-project
+          node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js" audit ./test/fixtures/clean-project
 
   action-smoke:
     name: Smoke official GitHub Action
