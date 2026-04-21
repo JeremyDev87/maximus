@@ -20,9 +20,9 @@ Modern projects stand on top of countless config layers like `tsconfig`, `eslint
 
 Maximus now uses the Rust runtime as its canonical implementation.
 
-- The root `maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
+- The root `@jeremyfellaz/maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
 - The published npm wrapper and GitHub Action also target that Rust runtime path by default.
-- The user-facing command surface stays the same: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
+- The published npm entrypoint is now `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor`, and `npx @jeremyfellaz/maximus fix`, while the installed binary name stays `maximus`.
 - `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a limited compatibility fallback; it is no longer the primary implementation surface for new runtime or distribution behavior. Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
 - `docs/plan/001` through `012` are Rust v1 spec inputs, and `docs/plan/013+` plus the older JS backlog are no longer the default implementation lane.
 
@@ -41,9 +41,9 @@ See the [runtime transition document](https://github.com/JeremyDev87/maximus/blo
 ## Commands
 
 ```bash
-npx maximus audit
-npx maximus doctor
-npx maximus fix
+npx @jeremyfellaz/maximus audit
+npx @jeremyfellaz/maximus doctor
+npx @jeremyfellaz/maximus fix
 ```
 
 ### `audit`

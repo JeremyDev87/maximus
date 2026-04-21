@@ -56,4 +56,4 @@ runs:
         MAXIMUS_TARGET_PATH: ${{ inputs.path }}
       run: |
         install_root="$RUNNER_TEMP/maximus-action"
-        node "$install_root/node_modules/maximus/bin/maximus.js" "$MAXIMUS_COMMAND" "$MAXIMUS_TARGET_PATH"
+        node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js" "$MAXIMUS_COMMAND" "$MAXIMUS_TARGET_PATH"

@@ -13,14 +13,14 @@ test("packed wrapper launch prefers the npm .bin shim when it exists", async (t)
   });
 
   await mkdir(path.join(installRoot, "node_modules", ".bin"), { recursive: true });
-  await mkdir(path.join(installRoot, "node_modules", "maximus", "bin"), {
+  await mkdir(path.join(installRoot, "node_modules", "@jeremyfellaz", "maximus", "bin"), {
     recursive: true,
   });
 
-  const packageEntrypoint = path.join(installRoot, "node_modules", "maximus", "bin", "maximus.js");
+  const packageEntrypoint = path.join(installRoot, "node_modules", "@jeremyfellaz", "maximus", "bin", "maximus.js");
   await writeFile(packageEntrypoint, "#!/usr/bin/env node\n", "utf8");
   await chmod(packageEntrypoint, 0o755);
-  await symlink("../maximus/bin/maximus.js", path.join(installRoot, "node_modules", ".bin", "maximus"));
+  await symlink("../@jeremyfellaz/maximus/bin/maximus.js", path.join(installRoot, "node_modules", ".bin", "maximus"));
 
   const launch = await resolvePackedWrapperLaunch(installRoot);
 
@@ -36,11 +36,11 @@ test("packed wrapper launch falls back to the installed package entrypoint when 
     await rm(installRoot, { recursive: true, force: true });
   });
 
-  await mkdir(path.join(installRoot, "node_modules", "maximus", "bin"), {
+  await mkdir(path.join(installRoot, "node_modules", "@jeremyfellaz", "maximus", "bin"), {
     recursive: true,
   });
 
-  const packageEntrypoint = path.join(installRoot, "node_modules", "maximus", "bin", "maximus.js");
+  const packageEntrypoint = path.join(installRoot, "node_modules", "@jeremyfellaz", "maximus", "bin", "maximus.js");
   await writeFile(packageEntrypoint, "#!/usr/bin/env node\n", "utf8");
   await chmod(packageEntrypoint, 0o755);
 

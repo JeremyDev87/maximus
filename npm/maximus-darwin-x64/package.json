@@ -1,5 +1,5 @@
 {
-  "name": "maximus-darwin-x64",
+  "name": "@jeremyfellaz/maximus-darwin-x64",
   "version": "0.1.0",
   "description": "Prebuilt Maximus Rust binary for darwin x64.",
   "license": "MIT",
@@ -10,6 +10,9 @@
   "homepage": "https://github.com/JeremyDev87/maximus#readme",
   "bugs": {
     "url": "https://github.com/JeremyDev87/maximus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "os": [
     "darwin"

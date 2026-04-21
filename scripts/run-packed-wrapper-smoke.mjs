@@ -10,28 +10,33 @@ import { resolvePackedWrapperLaunch } from "./lib/packed-wrapper-launch.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const rootPackageName = "@jeremyfellaz/maximus";
 const allPlatformPackages = [
   {
-    packageName: "maximus-darwin-arm64",
+    packageName: "@jeremyfellaz/maximus-darwin-arm64",
+    directoryName: "maximus-darwin-arm64",
     directory: path.join(repoRoot, "npm", "maximus-darwin-arm64"),
     platform: "darwin",
     arch: "arm64",
   },
   {
-    packageName: "maximus-darwin-x64",
+    packageName: "@jeremyfellaz/maximus-darwin-x64",
+    directoryName: "maximus-darwin-x64",
     directory: path.join(repoRoot, "npm", "maximus-darwin-x64"),
     platform: "darwin",
     arch: "x64",
   },
   {
-    packageName: "maximus-linux-arm64-gnu",
+    packageName: "@jeremyfellaz/maximus-linux-arm64-gnu",
+    directoryName: "maximus-linux-arm64-gnu",
     directory: path.join(repoRoot, "npm", "maximus-linux-arm64-gnu"),
     platform: "linux",
     arch: "arm64",
     libc: "glibc",
   },
   {
-    packageName: "maximus-linux-x64-gnu",
+    packageName: "@jeremyfellaz/maximus-linux-x64-gnu",
+    directoryName: "maximus-linux-x64-gnu",
     directory: path.join(repoRoot, "npm", "maximus-linux-x64-gnu"),
     platform: "linux",
     arch: "x64",
@@ -143,7 +148,7 @@ async function packAllPlatformPackages(tempRoot, rustBinary, currentPlatformPack
   const platformSourceRoot = path.join(tempRoot, "platform-package-sources");
 
   for (const platformPackage of allPlatformPackages) {
-    const stagedDirectory = path.join(platformSourceRoot, platformPackage.packageName);
+    const stagedDirectory = path.join(platformSourceRoot, platformPackage.directoryName);
     await cp(platformPackage.directory, stagedDirectory, { recursive: true });
     if (platformPackage.packageName === currentPlatformPackageName) {
       await copyFile(rustBinary, path.join(stagedDirectory, "bin", "maximus"));
@@ -182,7 +187,7 @@ async function packAllPlatformPackages(tempRoot, rustBinary, currentPlatformPack
 async function installPackedPackages(tempRoot, rootTarball, options = {}) {
   const installRoot = path.join(tempRoot, options.directoryName ?? "install");
   const dependencies = {
-    maximus: `file:${rootTarball}`,
+    [rootPackageName]: `file:${rootTarball}`,
   };
 
   await mkdir(installRoot, { recursive: true });
@@ -354,7 +359,7 @@ async function runFallbackBlockingScenarios(installRoot) {
 }
 
 async function removeJsFallback(installRoot) {
-  await rm(path.join(installRoot, "node_modules", "maximus", "src"), {
+  await rm(path.join(installRoot, "node_modules", "@jeremyfellaz", "maximus", "src"), {
     recursive: true,
     force: true,
   });

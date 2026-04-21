@@ -18,17 +18,17 @@ test("installed native runtime assertion accepts a non-placeholder runtime packa
     await rm(installRoot, { recursive: true, force: true });
   });
 
-  await mkdir(path.join(installRoot, "node_modules", runtimePackage, "bin"), {
+  await mkdir(path.join(installRoot, "node_modules", runtimePackage.packageName, "bin"), {
     recursive: true,
   });
-  const binaryPath = path.join(installRoot, "node_modules", runtimePackage, "bin", "maximus");
+  const binaryPath = path.join(installRoot, "node_modules", runtimePackage.packageName, "bin", "maximus");
   await writeFile(binaryPath, "#!/bin/sh\necho native-runtime\n", "utf8");
   await chmod(binaryPath, 0o755);
 
   const result = await assertInstalledNativeRuntime(installRoot);
 
   assert.deepEqual(result, {
-    packageName: runtimePackage,
+    packageName: runtimePackage.packageName,
     binaryPath,
   });
 });
@@ -45,11 +45,11 @@ test("installed native runtime assertion rejects placeholder runtime binaries", 
     await rm(installRoot, { recursive: true, force: true });
   });
 
-  await mkdir(path.join(installRoot, "node_modules", runtimePackage, "bin"), {
+  await mkdir(path.join(installRoot, "node_modules", runtimePackage.packageName, "bin"), {
     recursive: true,
   });
-  const binaryPath = path.join(installRoot, "node_modules", runtimePackage, "bin", "maximus");
-  await cp(path.join(process.cwd(), "npm", runtimePackage, "bin", "maximus"), binaryPath);
+  const binaryPath = path.join(installRoot, "node_modules", runtimePackage.packageName, "bin", "maximus");
+  await cp(path.join(process.cwd(), "npm", runtimePackage.directoryName, "bin", "maximus"), binaryPath);
   await chmod(binaryPath, 0o755);
 
   await assert.rejects(
@@ -60,11 +60,17 @@ test("installed native runtime assertion rejects placeholder runtime binaries", 
 
 function currentRuntimePackage() {
   if (process.platform === "darwin" && process.arch === "arm64") {
-    return "maximus-darwin-arm64";
+    return {
+      packageName: "@jeremyfellaz/maximus-darwin-arm64",
+      directoryName: "maximus-darwin-arm64",
+    };
   }
 
   if (process.platform === "darwin" && process.arch === "x64") {
-    return "maximus-darwin-x64";
+    return {
+      packageName: "@jeremyfellaz/maximus-darwin-x64",
+      directoryName: "maximus-darwin-x64",
+    };
   }
 
   if (
@@ -72,7 +78,10 @@ function currentRuntimePackage() {
     process.arch === "arm64" &&
     process.report?.getReport?.().header?.glibcVersionRuntime
   ) {
-    return "maximus-linux-arm64-gnu";
+    return {
+      packageName: "@jeremyfellaz/maximus-linux-arm64-gnu",
+      directoryName: "maximus-linux-arm64-gnu",
+    };
   }
 
   if (
@@ -80,7 +89,10 @@ function currentRuntimePackage() {
     process.arch === "x64" &&
     process.report?.getReport?.().header?.glibcVersionRuntime
   ) {
-    return "maximus-linux-x64-gnu";
+    return {
+      packageName: "@jeremyfellaz/maximus-linux-x64-gnu",
+      directoryName: "maximus-linux-x64-gnu",
+    };
   }
 
   return null;

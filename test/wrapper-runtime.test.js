@@ -18,16 +18,16 @@ test("wrapper preserves conventional exit code when the child terminates by sign
   });
 
   await mkdir(path.join(rootDir, "bin"), { recursive: true });
-  await mkdir(path.join(rootDir, "node_modules", runtimePackage, "bin"), {
+  await mkdir(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin"), {
     recursive: true,
   });
 
   await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
   await writeFile(
-    path.join(rootDir, "node_modules", runtimePackage, "package.json"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "package.json"),
     JSON.stringify(
       {
-        name: runtimePackage,
+        name: runtimePackage.packageName,
         version: "0.1.0",
       },
       null,
@@ -36,11 +36,11 @@ test("wrapper preserves conventional exit code when the child terminates by sign
     "utf8",
   );
   await writeFile(
-    path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"),
     "#!/bin/sh\nkill -s INT $$\n",
     "utf8",
   );
-  await chmod(path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"), 0o755);
+  await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o755);
 
   const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
 
@@ -105,14 +105,14 @@ test("wrapper ignores placeholder native packages and falls back to the JS refer
 
   await mkdir(path.join(rootDir, "bin"), { recursive: true });
   await mkdir(path.join(rootDir, "src"), { recursive: true });
-  await mkdir(path.join(rootDir, "node_modules", runtimePackage, "bin"), {
+  await mkdir(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin"), {
     recursive: true,
   });
 
   await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
   await cp(
-    path.join(process.cwd(), "npm", runtimePackage, "bin", "maximus"),
-    path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"),
+    path.join(process.cwd(), "npm", runtimePackage.directoryName, "bin", "maximus"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"),
   );
   await writeFile(
     path.join(rootDir, "src", "cli.js"),
@@ -125,10 +125,10 @@ test("wrapper ignores placeholder native packages and falls back to the JS refer
     "utf8",
   );
   await writeFile(
-    path.join(rootDir, "node_modules", runtimePackage, "package.json"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "package.json"),
     JSON.stringify(
       {
-        name: runtimePackage,
+        name: runtimePackage.packageName,
         version: "0.1.0",
       },
       null,
@@ -136,7 +136,7 @@ test("wrapper ignores placeholder native packages and falls back to the JS refer
     ),
     "utf8",
   );
-  await chmod(path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"), 0o755);
+  await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o755);
 
   const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
 
@@ -579,7 +579,7 @@ test("wrapper prefers repository debug binaries over installed packages and rele
   await mkdir(path.join(rootDir, "bin"), { recursive: true });
   await mkdir(path.join(rootDir, "target", "debug"), { recursive: true });
   await mkdir(path.join(rootDir, "target", "release"), { recursive: true });
-  await mkdir(path.join(rootDir, "node_modules", runtimePackage, "bin"), {
+  await mkdir(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin"), {
     recursive: true,
   });
 
@@ -587,10 +587,10 @@ test("wrapper prefers repository debug binaries over installed packages and rele
   await writeFile(path.join(rootDir, "target", "debug", "maximus"), "#!/bin/sh\necho debug-runtime\n", "utf8");
   await writeFile(path.join(rootDir, "target", "release", "maximus"), "#!/bin/sh\necho release-runtime\n", "utf8");
   await writeFile(
-    path.join(rootDir, "node_modules", runtimePackage, "package.json"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "package.json"),
     JSON.stringify(
       {
-        name: runtimePackage,
+        name: runtimePackage.packageName,
         version: "0.1.0",
       },
       null,
@@ -599,13 +599,13 @@ test("wrapper prefers repository debug binaries over installed packages and rele
     "utf8",
   );
   await writeFile(
-    path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"),
     "#!/bin/sh\necho installed-runtime\n",
     "utf8",
   );
   await chmod(path.join(rootDir, "target", "debug", "maximus"), 0o755);
   await chmod(path.join(rootDir, "target", "release", "maximus"), 0o755);
-  await chmod(path.join(rootDir, "node_modules", runtimePackage, "bin", "maximus"), 0o755);
+  await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o755);
 
   const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
 
@@ -616,11 +616,17 @@ test("wrapper prefers repository debug binaries over installed packages and rele
 
 function currentRuntimePackage() {
   if (process.platform === "darwin" && process.arch === "arm64") {
-    return "maximus-darwin-arm64";
+    return {
+      packageName: "@jeremyfellaz/maximus-darwin-arm64",
+      directoryName: "maximus-darwin-arm64",
+    };
   }
 
   if (process.platform === "darwin" && process.arch === "x64") {
-    return "maximus-darwin-x64";
+    return {
+      packageName: "@jeremyfellaz/maximus-darwin-x64",
+      directoryName: "maximus-darwin-x64",
+    };
   }
 
   if (
@@ -628,7 +634,10 @@ function currentRuntimePackage() {
     process.arch === "arm64" &&
     process.report?.getReport?.().header?.glibcVersionRuntime
   ) {
-    return "maximus-linux-arm64-gnu";
+    return {
+      packageName: "@jeremyfellaz/maximus-linux-arm64-gnu",
+      directoryName: "maximus-linux-arm64-gnu",
+    };
   }
 
   if (
@@ -636,7 +645,10 @@ function currentRuntimePackage() {
     process.arch === "x64" &&
     process.report?.getReport?.().header?.glibcVersionRuntime
   ) {
-    return "maximus-linux-x64-gnu";
+    return {
+      packageName: "@jeremyfellaz/maximus-linux-x64-gnu",
+      directoryName: "maximus-linux-x64-gnu",
+    };
   }
 
   return null;

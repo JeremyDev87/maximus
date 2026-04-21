@@ -3,11 +3,12 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+const rootPackageName = "@jeremyfellaz/maximus";
 const platformPackages = [
-  "maximus-darwin-arm64",
-  "maximus-darwin-x64",
-  "maximus-linux-arm64-gnu",
-  "maximus-linux-x64-gnu",
+  "@jeremyfellaz/maximus-darwin-arm64",
+  "@jeremyfellaz/maximus-darwin-x64",
+  "@jeremyfellaz/maximus-linux-arm64-gnu",
+  "@jeremyfellaz/maximus-linux-x64-gnu",
 ];
 
 const requiredFiles = {
@@ -61,7 +62,7 @@ function validateAction(actionText) {
   assertContains(actionText, "MAXIMUS_COMMAND: ${{ inputs.command }}", "action command env wiring");
   assertContains(actionText, "MAXIMUS_TARGET_PATH: ${{ inputs.path }}", "action path env wiring");
   assertContains(actionText, '"$MAXIMUS_COMMAND" "$MAXIMUS_TARGET_PATH"', "action wrapper env argv usage");
-  assertContains(actionText, 'node "$install_root/node_modules/maximus/bin/maximus.js"', "action wrapper invocation");
+  assertContains(actionText, 'node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js"', "action wrapper invocation");
   assertContains(actionText, "registry-url", "action registry override input");
   assert.ok(
     !actionText.includes('if [[ -n "${{ inputs.registry-url }}" ]]; then'),
@@ -134,8 +135,9 @@ function validateReleaseWorkflow(releaseText) {
   assertContains(releaseText, "uses: ./.github/workflows/rust-release-binaries.yml", "release reusable binary workflow call");
   assertContains(releaseText, "node ./scripts/assert-release-workflow-context.mjs", "release context assertion command");
   assertContains(releaseText, "npm publish . --access public", "root wrapper publish");
-  assertContains(releaseText, 'npm install --no-package-lock --prefix "$install_root" "maximus@${{ needs.validate-release-context.outputs.package_version }}"', "published wrapper smoke install");
+  assertContains(releaseText, `npm install --no-package-lock --prefix "$install_root" "${rootPackageName}@\${{ needs.validate-release-context.outputs.package_version }}"`, "published wrapper smoke install");
   assertContains(releaseText, 'node ./scripts/assert-installed-native-runtime.mjs "$install_root"', "published wrapper native runtime assertion");
+  assertContains(releaseText, 'node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js" audit ./test/fixtures/clean-project', "published wrapper smoke audit");
   assertContains(releaseText, "uses: ./.github/workflows/action-smoke.yml", "release action smoke call");
   assertContains(releaseText, "needs: publish-platform-packages", "wrapper publish ordering");
   assertContains(releaseText, "- publish-wrapper", "published wrapper smoke ordering");
@@ -159,9 +161,11 @@ function validateReleaseWorkflow(releaseText) {
 }
 
 function validateReadmes(readmeKoText, readmeEnText) {
+  assertContains(readmeKoText, "npx @jeremyfellaz/maximus audit", "Korean README scoped npx example");
   assertContains(readmeKoText, "## GitHub Action", "Korean README action section");
   assertContains(readmeKoText, "uses: JeremyDev87/maximus@<release-tag>", "Korean README action example");
   assertContains(readmeKoText, "예: `v0.1.0`", "Korean README release tag guidance");
+  assertContains(readmeEnText, "npx @jeremyfellaz/maximus audit", "English README scoped npx example");
   assertContains(readmeEnText, "## GitHub Action", "English README action section");
   assertContains(readmeEnText, "uses: JeremyDev87/maximus@<release-tag>", "English README action example");
   assertContains(readmeEnText, "for example `v0.1.0`", "English README release tag guidance");

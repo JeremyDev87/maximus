@@ -8,7 +8,7 @@ This project aims to make config-heavy repositories easier to understand, safer 
 
 Maximus now treats Rust as the canonical runtime for the published CLI, the npm wrapper, and the GitHub Action.
 
-- `bin/maximus.js` is a thin launcher that prefers repository Rust builds and installed platform-specific Rust binaries.
+- `bin/maximus.js` is a thin launcher for the published `@jeremyfellaz/maximus` wrapper and prefers repository Rust builds plus installed platform-specific Rust binaries.
 - `src/**/*.js` stays in the repository as frozen reference code for parity checks, golden output generation, and roadmap context. It also remains available as a compatibility fallback for legacy-compatible CLI invocations, but config auto-loading and Rust-only CLI flags must still run on the canonical Rust runtime.
 - New user-facing runtime or distribution behavior should land in the Rust crates, the thin launcher, and the docs. Do not treat `src/**/*.js` as the default implementation surface for new product behavior.
 - `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to expand the JS codebase directly.

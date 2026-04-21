@@ -65,14 +65,14 @@ async function resolveRuntime(args) {
 function resolvePlatformPackage() {
   if (process.platform === "darwin" && process.arch === "arm64") {
     return {
-      packageName: "maximus-darwin-arm64",
+      packageName: "@jeremyfellaz/maximus-darwin-arm64",
       label: "darwin-arm64",
     };
   }
 
   if (process.platform === "darwin" && process.arch === "x64") {
     return {
-      packageName: "maximus-darwin-x64",
+      packageName: "@jeremyfellaz/maximus-darwin-x64",
       label: "darwin-x64",
     };
   }
@@ -83,7 +83,7 @@ function resolvePlatformPackage() {
     }
 
     return {
-      packageName: "maximus-linux-arm64-gnu",
+      packageName: "@jeremyfellaz/maximus-linux-arm64-gnu",
       label: "linux-arm64-gnu",
     };
   }
@@ -94,7 +94,7 @@ function resolvePlatformPackage() {
     }
 
     return {
-      packageName: "maximus-linux-x64-gnu",
+      packageName: "@jeremyfellaz/maximus-linux-x64-gnu",
       label: "linux-x64-gnu",
     };
   }

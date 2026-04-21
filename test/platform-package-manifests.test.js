@@ -4,23 +4,41 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const runtimePackages = [
-  ["maximus-darwin-arm64", "arm64"],
-  ["maximus-darwin-x64", "x64"],
-  ["maximus-linux-arm64-gnu", "arm64"],
-  ["maximus-linux-x64-gnu", "x64"],
+  {
+    directoryName: "maximus-darwin-arm64",
+    packageName: "@jeremyfellaz/maximus-darwin-arm64",
+    expectedCpu: "arm64",
+  },
+  {
+    directoryName: "maximus-darwin-x64",
+    packageName: "@jeremyfellaz/maximus-darwin-x64",
+    expectedCpu: "x64",
+  },
+  {
+    directoryName: "maximus-linux-arm64-gnu",
+    packageName: "@jeremyfellaz/maximus-linux-arm64-gnu",
+    expectedCpu: "arm64",
+  },
+  {
+    directoryName: "maximus-linux-x64-gnu",
+    packageName: "@jeremyfellaz/maximus-linux-x64-gnu",
+    expectedCpu: "x64",
+  },
 ];
 
 test("platform runtime packages declare expected install metadata", async () => {
-  for (const [packageName, expectedCpu] of runtimePackages) {
+  for (const { directoryName, packageName, expectedCpu } of runtimePackages) {
     const manifest = JSON.parse(
-      await readFile(path.join(process.cwd(), "npm", packageName, "package.json"), "utf8"),
+      await readFile(path.join(process.cwd(), "npm", directoryName, "package.json"), "utf8"),
     );
 
+    assert.equal(manifest.name, packageName);
     assert.deepEqual(manifest.cpu, [expectedCpu]);
     assert.deepEqual(manifest.files, ["bin/maximus"]);
     assert.deepEqual(manifest.bin, { maximus: "./bin/maximus" });
+    assert.deepEqual(manifest.publishConfig, { access: "public" });
 
-    if (packageName.startsWith("maximus-darwin-")) {
+    if (directoryName.startsWith("maximus-darwin-")) {
       assert.deepEqual(manifest.os, ["darwin"]);
       assert.equal("libc" in manifest, false);
       continue;
@@ -33,10 +51,12 @@ test("platform runtime packages declare expected install metadata", async () => 
 
 test("root optional dependency versions stay in sync with platform package versions", async () => {
   const rootManifest = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8"));
+  assert.equal(rootManifest.name, "@jeremyfellaz/maximus");
+  assert.deepEqual(rootManifest.publishConfig, { access: "public" });
 
-  for (const [packageName] of runtimePackages) {
+  for (const { directoryName, packageName } of runtimePackages) {
     const platformManifest = JSON.parse(
-      await readFile(path.join(process.cwd(), "npm", packageName, "package.json"), "utf8"),
+      await readFile(path.join(process.cwd(), "npm", directoryName, "package.json"), "utf8"),
     );
 
     assert.equal(platformManifest.version, rootManifest.version);
