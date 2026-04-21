@@ -6,6 +6,10 @@ import { createReadStream } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import {
+  assertInstalledNativeRuntime,
+  inspectInstalledNativeRuntime,
+} from "./assert-installed-native-runtime.mjs";
 import { resolvePackedWrapperLaunch } from "./lib/packed-wrapper-launch.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +80,7 @@ try {
     registryUrl: localRegistry.url,
   });
 
+  await assertInstalledNativeRuntime(installRoot);
   await removeJsFallback(installRoot);
   await runScenario(installRoot);
 
@@ -84,6 +89,12 @@ try {
     omitOptional: true,
   });
 
+  const omittedRuntime = await inspectInstalledNativeRuntime(omitOptionalInstallRoot);
+  assert.equal(
+    omittedRuntime.state,
+    "missing",
+    `Expected omit=optional install to exclude the native runtime package, but observed "${omittedRuntime.state}".`,
+  );
   await runScenario(omitOptionalInstallRoot);
   await runFallbackBlockingScenarios(omitOptionalInstallRoot);
 

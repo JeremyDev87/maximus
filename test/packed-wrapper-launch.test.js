@@ -51,3 +51,15 @@ test("packed wrapper launch falls back to the installed package entrypoint when 
     args: [packageEntrypoint],
   });
 });
+
+test("packed wrapper launch fails clearly when the install exposes no runnable entrypoint", async (t) => {
+  const installRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-packed-launch-missing-"));
+  t.after(async () => {
+    await rm(installRoot, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    () => resolvePackedWrapperLaunch(installRoot),
+    /did not expose a runnable Maximus entrypoint/,
+  );
+});

@@ -148,6 +148,113 @@ test("wrapper ignores placeholder native packages and falls back to the JS refer
   assert.equal(result.stderr.trim(), "");
 });
 
+test("wrapper accepts execute-only installed runtime binaries", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows does not model execute-only file permissions");
+    return;
+  }
+
+  const runtimePackage = currentRuntimePackage();
+  if (!runtimePackage) {
+    t.skip("current platform is intentionally unsupported by the wrapper");
+    return;
+  }
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-exec-only-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin"), {
+    recursive: true,
+  });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await writeFile(
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "package.json"),
+    JSON.stringify(
+      {
+        name: runtimePackage.packageName,
+        version: "0.1.0",
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await cp("/usr/bin/true", path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"));
+  await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o111);
+
+  const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
+
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout.trim(), "");
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("wrapper ignores execute-only placeholder runtimes and falls back to the JS reference runtime", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows does not model execute-only file permissions");
+    return;
+  }
+
+  const runtimePackage = currentRuntimePackage();
+  if (!runtimePackage) {
+    t.skip("current platform is intentionally unsupported by the wrapper");
+    return;
+  }
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-exec-only-placeholder-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "bin"), { recursive: true });
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+  await mkdir(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin"), {
+    recursive: true,
+  });
+
+  await cp(path.join(process.cwd(), "bin", "maximus.js"), path.join(rootDir, "bin", "maximus.js"));
+  await cp(
+    path.join(process.cwd(), "npm", runtimePackage.directoryName, "bin", "maximus"),
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"),
+  );
+  await writeFile(
+    path.join(rootDir, "src", "cli.js"),
+    [
+      "export async function runCli(args) {",
+      "  console.log(JSON.stringify({ runtime: 'js', args }));",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "node_modules", runtimePackage.packageName, "package.json"),
+    JSON.stringify(
+      {
+        name: runtimePackage.packageName,
+        version: "0.1.0",
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o111);
+
+  const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
+
+  assert.equal(result.code, 0);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    runtime: "js",
+    args: ["audit", "."],
+  });
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("wrapper blocks the frozen JS fallback when Rust-only flags are requested", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-wrapper-rust-only-flag-"));
   t.after(async () => {
