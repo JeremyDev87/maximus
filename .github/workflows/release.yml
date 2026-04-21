@@ -1,17 +1,21 @@
 name: release
 
+# Source of truth is the verified release tag itself. Publishing a GitHub Release
+# does not trigger npm publication again; Release Drafter only prepares notes.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag to publish. Select the same tag ref before running.
+        description: Existing release tag to rerun. Run workflow_dispatch against the same tag ref, for example `gh workflow run release.yml --ref <tag> -f release_tag=<tag>`.
         required: true
         type: string
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -19,63 +23,60 @@ concurrency:
 
 jobs:
   validate-release-context:
-    name: Validate release context
+    name: Validate release plan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      package_version: ${{ steps.release_context.outputs.package_version }}
-      release_tag: ${{ steps.release_context.outputs.release_tag }}
+      package_version: ${{ steps.release_plan.outputs.package_version }}
+      release_tag: ${{ steps.release_plan.outputs.release_tag }}
+      dist_tag: ${{ steps.release_plan.outputs.dist_tag }}
+      is_prerelease: ${{ steps.release_plan.outputs.is_prerelease }}
+      release_commit_sha: ${{ steps.capture_release_commit.outputs.release_commit_sha }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: "24"
 
-      - name: Resolve release tag from release event
-        if: github.event_name == 'release'
-        id: release_tag_from_event
-        shell: bash
-        env:
-          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          printf 'value=%s\n' "$RELEASE_EVENT_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve release tag from workflow input
-        if: github.event_name == 'workflow_dispatch'
-        id: release_tag_from_input
-        shell: bash
-        env:
-          DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          printf 'value=%s\n' "$DISPATCH_RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Assert release ref and package version alignment
-        id: release_context
+      - name: Build release plan
+        id: release_plan
         shell: bash
         env:
           RELEASE_EVENT_NAME: ${{ github.event_name }}
           RELEASE_GITHUB_REF: ${{ github.ref }}
           RELEASE_GITHUB_REF_NAME: ${{ github.ref_name }}
-          RELEASE_SELECTED_TAG: ${{ github.event_name == 'release' && steps.release_tag_from_event.outputs.value || steps.release_tag_from_input.outputs.value }}
+          RELEASE_SELECTED_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
         run: |
-          node ./scripts/assert-release-workflow-context.mjs \
+          node ./scripts/release-plan.mjs \
             "$RELEASE_EVENT_NAME" \
             "$RELEASE_GITHUB_REF" \
             "$RELEASE_GITHUB_REF_NAME" \
             "$RELEASE_SELECTED_TAG"
 
+      - name: Capture release commit
+        id: capture_release_commit
+        shell: bash
+        run: |
+          printf 'release_commit_sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build-platform-binaries:
     name: Build platform binaries
     needs: validate-release-context
     uses: ./.github/workflows/rust-release-binaries.yml
+    with:
+      release_ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}
 
   publish-platform-packages:
     name: Publish platform package (${{ matrix.package_name }})
-    needs: build-platform-binaries
+    needs:
+      - build-platform-binaries
+      - validate-release-context
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -90,12 +91,11 @@ jobs:
             package_name: "@jeremyfellaz/maximus-linux-arm64-gnu"
           - package_dir: maximus-linux-x64-gnu
             package_name: "@jeremyfellaz/maximus-linux-x64-gnu"
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -115,20 +115,97 @@ jobs:
           cp "${RUNNER_TEMP}/${{ matrix.package_dir }}/maximus" "./npm/${{ matrix.package_dir }}/bin/maximus"
           chmod +x "./npm/${{ matrix.package_dir }}/bin/maximus"
 
+      - name: Check npm package state
+        id: package_state
+        shell: bash
+        env:
+          PACKAGE_NAME: ${{ matrix.package_name }}
+          PACKAGE_VERSION: ${{ needs.validate-release-context.outputs.package_version }}
+        run: |
+          lookup_log="$RUNNER_TEMP/npm-view-${{ matrix.package_dir }}.log"
+          set +e
+          npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >"$lookup_log" 2>&1
+          lookup_status=$?
+          set -e
+
+          if [[ $lookup_status -eq 0 ]]; then
+            printf 'state=already-published\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          lookup_state="$(node ./scripts/classify-npm-lookup-error.mjs "$lookup_log")"
+          if [[ "$lookup_state" == "not-found" ]]; then
+            printf 'state=missing\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cat "$lookup_log" >&2
+          exit 1
+
       - name: Publish platform package
-        run: npm publish "./npm/${{ matrix.package_dir }}" --access public
+        if: steps.package_state.outputs.state == 'missing'
+        shell: bash
+        env:
+          PACKAGE_DIR: ${{ matrix.package_dir }}
+          PACKAGE_NAME: ${{ matrix.package_name }}
+          PACKAGE_VERSION: ${{ needs.validate-release-context.outputs.package_version }}
+          RELEASE_DIST_TAG: ${{ needs.validate-release-context.outputs.dist_tag }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          trusted_log="$RUNNER_TEMP/npm-publish-${PACKAGE_DIR}-trusted.log"
+          set +e
+          npm publish "./npm/$PACKAGE_DIR" --provenance --access public --tag "$RELEASE_DIST_TAG" >"$trusted_log" 2>&1
+          trusted_status=$?
+          set -e
+
+          if [[ $trusted_status -eq 0 ]]; then
+            exit 0
+          fi
+
+          trusted_state="$(node ./scripts/classify-npm-publish-error.mjs "$trusted_log")"
+          if [[ "$trusted_state" == "already-published" ]]; then
+            echo "::notice title=npm publish skipped::$PACKAGE_NAME@$PACKAGE_VERSION is already published."
+            exit 0
+          fi
+
+          if [[ -z "$NPM_TOKEN" ]]; then
+            cat "$trusted_log" >&2
+            exit 1
+          fi
+
+          echo "::notice title=npm publish fallback::Trusted publishing failed for $PACKAGE_NAME@$PACKAGE_VERSION. Retrying with NPM_TOKEN."
+          fallback_log="$RUNNER_TEMP/npm-publish-${PACKAGE_DIR}-fallback.log"
+          set +e
+          NODE_AUTH_TOKEN="$NPM_TOKEN" npm publish "./npm/$PACKAGE_DIR" --access public --tag "$RELEASE_DIST_TAG" >"$fallback_log" 2>&1
+          fallback_status=$?
+          set -e
+
+          if [[ $fallback_status -eq 0 ]]; then
+            exit 0
+          fi
+
+          fallback_state="$(node ./scripts/classify-npm-publish-error.mjs "$fallback_log")"
+          if [[ "$fallback_state" == "already-published" ]]; then
+            echo "::notice title=npm publish skipped::$PACKAGE_NAME@$PACKAGE_VERSION is already published."
+            exit 0
+          fi
+
+          cat "$fallback_log" >&2
+          exit 1
 
   publish-wrapper:
     name: Publish npm wrapper
-    needs: publish-platform-packages
+    needs:
+      - publish-platform-packages
+      - validate-release-context
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -136,8 +213,82 @@ jobs:
           node-version: "24"
           registry-url: https://registry.npmjs.org
 
+      - name: Check root wrapper state
+        id: wrapper_state
+        shell: bash
+        env:
+          PACKAGE_NAME: "@jeremyfellaz/maximus"
+          PACKAGE_VERSION: ${{ needs.validate-release-context.outputs.package_version }}
+        run: |
+          lookup_log="$RUNNER_TEMP/npm-view-root-wrapper.log"
+          set +e
+          npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >"$lookup_log" 2>&1
+          lookup_status=$?
+          set -e
+
+          if [[ $lookup_status -eq 0 ]]; then
+            printf 'state=already-published\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          lookup_state="$(node ./scripts/classify-npm-lookup-error.mjs "$lookup_log")"
+          if [[ "$lookup_state" == "not-found" ]]; then
+            printf 'state=missing\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cat "$lookup_log" >&2
+          exit 1
+
       - name: Publish root wrapper package
-        run: npm publish . --access public
+        if: steps.wrapper_state.outputs.state == 'missing'
+        shell: bash
+        env:
+          PACKAGE_NAME: "@jeremyfellaz/maximus"
+          PACKAGE_VERSION: ${{ needs.validate-release-context.outputs.package_version }}
+          RELEASE_DIST_TAG: ${{ needs.validate-release-context.outputs.dist_tag }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          trusted_log="$RUNNER_TEMP/npm-publish-root-wrapper-trusted.log"
+          set +e
+          npm publish . --provenance --access public --tag "$RELEASE_DIST_TAG" >"$trusted_log" 2>&1
+          trusted_status=$?
+          set -e
+
+          if [[ $trusted_status -eq 0 ]]; then
+            exit 0
+          fi
+
+          trusted_state="$(node ./scripts/classify-npm-publish-error.mjs "$trusted_log")"
+          if [[ "$trusted_state" == "already-published" ]]; then
+            echo "::notice title=npm publish skipped::$PACKAGE_NAME@$PACKAGE_VERSION is already published."
+            exit 0
+          fi
+
+          if [[ -z "$NPM_TOKEN" ]]; then
+            cat "$trusted_log" >&2
+            exit 1
+          fi
+
+          echo "::notice title=npm publish fallback::Trusted publishing failed for $PACKAGE_NAME@$PACKAGE_VERSION. Retrying with NPM_TOKEN."
+          fallback_log="$RUNNER_TEMP/npm-publish-root-wrapper-fallback.log"
+          set +e
+          NODE_AUTH_TOKEN="$NPM_TOKEN" npm publish . --access public --tag "$RELEASE_DIST_TAG" >"$fallback_log" 2>&1
+          fallback_status=$?
+          set -e
+
+          if [[ $fallback_status -eq 0 ]]; then
+            exit 0
+          fi
+
+          fallback_state="$(node ./scripts/classify-npm-publish-error.mjs "$fallback_log")"
+          if [[ "$fallback_state" == "already-published" ]]; then
+            echo "::notice title=npm publish skipped::$PACKAGE_NAME@$PACKAGE_VERSION is already published."
+            exit 0
+          fi
+
+          cat "$fallback_log" >&2
+          exit 1
 
   smoke-published-wrapper:
     name: Smoke published wrapper (${{ matrix.runner.platform }})
@@ -162,6 +313,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -199,3 +352,6 @@ jobs:
       - publish-platform-packages
       - publish-wrapper
     uses: ./.github/workflows/action-smoke.yml
+    with:
+      release_tag: ${{ needs.validate-release-context.outputs.release_tag }}
+      release_sha: ${{ needs.validate-release-context.outputs.release_commit_sha }}

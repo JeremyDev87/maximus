@@ -17,7 +17,7 @@ export async function assertReleaseWorkflowContext({
   requestedReleaseTag,
 }) {
   assert.ok(
-    eventName === "release" || eventName === "workflow_dispatch",
+    eventName === "push" || eventName === "workflow_dispatch",
     `unsupported release workflow event: ${eventName}`,
   );
   assert.ok(requestedReleaseTag, "release tag is required");
