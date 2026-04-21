@@ -18,9 +18,14 @@ const requiredFiles = {
   actionSmokeWorkflow: ".github/workflows/action-smoke.yml",
   releaseWorkflow: ".github/workflows/release.yml",
   rustReleaseWorkflow: ".github/workflows/rust-release-binaries.yml",
+  releaseDrafterWorkflow: ".github/workflows/release-drafter.yml",
+  releaseDrafterConfig: ".github/release-drafter.yml",
   readmeKo: "README.md",
   readmeEn: "README.en.md",
   releaseContextAssertion: "scripts/assert-release-workflow-context.mjs",
+  releasePlan: "scripts/release-plan.mjs",
+  npmLookupClassifier: "scripts/classify-npm-lookup-error.mjs",
+  npmPublishClassifier: "scripts/classify-npm-publish-error.mjs",
   nativeRuntimeAssertion: "scripts/assert-installed-native-runtime.mjs",
 };
 
@@ -29,11 +34,16 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   const packageManifest = JSON.parse(fileContents.packageManifest);
   validateAction(fileContents.action);
   validateDevWorkflow(fileContents.devWorkflow);
-  validateActionSmokeWorkflow(fileContents.actionSmokeWorkflow, packageManifest.version);
+  validateActionSmokeWorkflow(fileContents.actionSmokeWorkflow);
   validateRustReleaseWorkflow(fileContents.rustReleaseWorkflow);
   validateReleaseWorkflow(fileContents.releaseWorkflow);
+  validateReleaseDrafterWorkflow(fileContents.releaseDrafterWorkflow);
+  validateReleaseDrafterConfig(fileContents.releaseDrafterConfig);
   validateReadmes(fileContents.readmeKo, fileContents.readmeEn);
   validateReleaseContextAssertion(fileContents.releaseContextAssertion);
+  validateReleasePlanScript(fileContents.releasePlan);
+  validateNpmLookupClassifier(fileContents.npmLookupClassifier);
+  validateNpmPublishClassifier(fileContents.npmPublishClassifier);
   validateNativeRuntimeAssertion(fileContents.nativeRuntimeAssertion);
 
   return {
@@ -91,24 +101,33 @@ function validateDevWorkflow(devText) {
 
   assertContains(devText, "release-wiring:", "release wiring job");
   assertContains(devText, "node ./scripts/validate-rust-release-wiring.mjs", "release wiring validation command");
-  assertContains(devText, "node --test test/github-action-wiring.test.js", "release wiring node test command");
+  assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/npm-error-classifiers.test.js", "release wiring node test command");
 }
 
-function validateActionSmokeWorkflow(actionSmokeText, packageVersion) {
+function validateActionSmokeWorkflow(actionSmokeText) {
   assertContains(actionSmokeText, "workflow_call:", "action smoke reusable trigger");
   assertContains(actionSmokeText, "workflow_dispatch:", "action smoke manual trigger");
-  assertContains(
-    actionSmokeText,
-    `uses: JeremyDev87/maximus@v${packageVersion}`,
-    "action smoke published action usage",
-  );
+  assertContains(actionSmokeText, "release_tag:", "action smoke release tag input");
+  assertContains(actionSmokeText, "release_sha:", "action smoke release sha input");
+  assertContains(actionSmokeText, "ref: ${{ inputs.release_sha || inputs.release_tag }}", "action smoke checkout ref");
+  assertContains(actionSmokeText, 'test "$(git rev-parse HEAD)" = "${{ inputs.release_sha }}"', "action smoke sha comparison");
+  assertContains(actionSmokeText, 'git fetch --depth=1 origin "refs/tags/${{ inputs.release_tag }}:refs/tags/${{ inputs.release_tag }}"', "action smoke tag fetch");
+  assertContains(actionSmokeText, 'test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "${{ inputs.release_sha }}"', "action smoke tag to sha comparison");
+  assertContains(actionSmokeText, 'git describe --tags --exact-match HEAD', "action smoke exact tag assertion");
+  assertContains(actionSmokeText, "uses: ./", "action smoke local tag checkout usage");
+  assertContains(actionSmokeText, "dynamic expressions in step-level `uses:`", "action smoke dynamic uses rationale");
   assertContains(actionSmokeText, "registry-url: ${{ inputs.registry_url }}", "action smoke registry passthrough");
-  assert.ok(!actionSmokeText.includes("uses: ./"), "action smoke should not use the local checkout action");
+  assert.ok(
+    !actionSmokeText.includes("uses: JeremyDev87/maximus@v0.1.0"),
+    "action smoke should not pin a static published action tag",
+  );
 }
 
 function validateRustReleaseWorkflow(rustReleaseText) {
   assertContains(rustReleaseText, "workflow_call:", "reusable rust release trigger");
   assertContains(rustReleaseText, "workflow_dispatch:", "manual rust release trigger");
+  assertContains(rustReleaseText, "release_ref:", "rust release ref input");
+  assertContains(rustReleaseText, "ref: ${{ inputs.release_ref }}", "rust release checkout ref");
   assertContains(rustReleaseText, "cargo build --release -p maximus-cli", "rust release build step");
   assertContains(rustReleaseText, "actions/upload-artifact@v4", "rust release artifact upload");
 
@@ -118,37 +137,44 @@ function validateRustReleaseWorkflow(rustReleaseText) {
 }
 
 function validateReleaseWorkflow(releaseText) {
-  assertContains(releaseText, "release:\n    types: [published]", "release published trigger");
+  assertContains(releaseText, 'push:\n    tags:\n      - "v*"', "release tag push trigger");
   assertContains(releaseText, "workflow_dispatch:", "release manual trigger");
   assertContains(releaseText, "release_tag:", "release workflow dispatch tag input");
   assertContains(releaseText, "validate-release-context:", "release context validation job");
   assertContains(releaseText, "needs: validate-release-context", "release context ordering");
-  assertContains(releaseText, "Resolve release tag from release event", "release event tag resolution step");
-  assertContains(releaseText, "Resolve release tag from workflow input", "release dispatch tag resolution step");
-  assertContains(releaseText, "RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}", "release event tag env wiring");
-  assertContains(releaseText, "DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}", "release dispatch tag env wiring");
+  assertContains(releaseText, "id-token: write", "release trusted publishing permission");
+  assertContains(releaseText, "Build release plan", "release plan step");
+  assertContains(releaseText, "node ./scripts/release-plan.mjs", "release plan command");
+  assertContains(releaseText, "dist_tag: ${{ steps.release_plan.outputs.dist_tag }}", "release dist-tag output");
+  assertContains(releaseText, "is_prerelease: ${{ steps.release_plan.outputs.is_prerelease }}", "release prerelease output");
+  assertContains(releaseText, "release_commit_sha: ${{ steps.capture_release_commit.outputs.release_commit_sha }}", "release commit sha output");
+  assertContains(releaseText, "git rev-parse HEAD", "release commit capture command");
   assertContains(releaseText, "RELEASE_EVENT_NAME: ${{ github.event_name }}", "release event name env wiring");
   assertContains(releaseText, "RELEASE_GITHUB_REF: ${{ github.ref }}", "release ref env wiring");
   assertContains(releaseText, "RELEASE_GITHUB_REF_NAME: ${{ github.ref_name }}", "release ref_name env wiring");
-  assertContains(releaseText, 'printf \'value=%s\\n\' "$RELEASE_EVENT_TAG" >> "$GITHUB_OUTPUT"', "release event tag output");
-  assertContains(releaseText, 'printf \'value=%s\\n\' "$DISPATCH_RELEASE_TAG" >> "$GITHUB_OUTPUT"', "release dispatch tag output");
+  assertContains(releaseText, "RELEASE_SELECTED_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}", "release selected tag env wiring");
   assertContains(releaseText, "uses: ./.github/workflows/rust-release-binaries.yml", "release reusable binary workflow call");
-  assertContains(releaseText, "node ./scripts/assert-release-workflow-context.mjs", "release context assertion command");
-  assertContains(releaseText, "npm publish . --access public", "root wrapper publish");
+  assertContains(releaseText, "release_ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}", "release reusable binary ref input");
+  assertContains(releaseText, "node ./scripts/classify-npm-lookup-error.mjs", "npm lookup classifier usage");
+  assertContains(releaseText, "node ./scripts/classify-npm-publish-error.mjs", "npm publish classifier usage");
+  assertContains(releaseText, "npm publish . --provenance --access public --tag \"$RELEASE_DIST_TAG\"", "root wrapper trusted publish");
+  assertContains(releaseText, "NODE_AUTH_TOKEN=\"$NPM_TOKEN\" npm publish . --access public --tag \"$RELEASE_DIST_TAG\"", "root wrapper token fallback publish");
+  assertContains(releaseText, "--provenance --access public --tag \"$RELEASE_DIST_TAG\"", "platform trusted publish");
   assertContains(releaseText, `npm install --no-package-lock --prefix "$install_root" "${rootPackageName}@\${{ needs.validate-release-context.outputs.package_version }}"`, "published wrapper smoke install");
   assertContains(releaseText, 'node ./scripts/assert-installed-native-runtime.mjs "$install_root"', "published wrapper native runtime assertion");
   assertContains(releaseText, 'node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js" audit ./test/fixtures/clean-project', "published wrapper smoke audit");
   assertContains(releaseText, "uses: ./.github/workflows/action-smoke.yml", "release action smoke call");
-  assertContains(releaseText, "needs: publish-platform-packages", "wrapper publish ordering");
+  assertContains(releaseText, "release_tag: ${{ needs.validate-release-context.outputs.release_tag }}", "release action smoke tag input");
+  assertContains(releaseText, "release_sha: ${{ needs.validate-release-context.outputs.release_commit_sha }}", "release action smoke sha input");
+  assertContains(releaseText, "ref: ${{ github.ref }}", "release validation checkout ref");
+  assertContains(releaseText, "ref: ${{ needs.validate-release-context.outputs.release_commit_sha }}", "release downstream sha checkout");
+  assertContains(releaseText, "gh workflow run release.yml --ref <tag> -f release_tag=<tag>", "release workflow dispatch guidance");
+  assertContains(releaseText, "publish-platform-packages", "wrapper publish ordering");
   assertContains(releaseText, "- publish-wrapper", "published wrapper smoke ordering");
   assertContains(releaseText, "strategy:\n      fail-fast: false\n      matrix:", "published wrapper smoke matrix");
   assert.ok(
-    !releaseText.includes('echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"'),
-    "release workflow should not interpolate release tag directly inside bash",
-  );
-  assert.ok(
-    !releaseText.includes('echo "value=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"'),
-    "release workflow should not interpolate dispatch input directly inside bash",
+    !releaseText.includes("types: [published]"),
+    "release workflow should not use release.published as the source of truth",
   );
   assert.ok(
     !releaseText.includes('"${{ github.event_name }}"'),
@@ -171,6 +197,21 @@ function validateReadmes(readmeKoText, readmeEnText) {
   assertContains(readmeEnText, "for example `v0.1.0`", "English README release tag guidance");
 }
 
+function validateReleaseDrafterWorkflow(releaseDrafterWorkflowText) {
+  assertContains(releaseDrafterWorkflowText, "push:", "release drafter push trigger");
+  assertContains(releaseDrafterWorkflowText, "workflow_dispatch:", "release drafter manual trigger");
+  assertContains(releaseDrafterWorkflowText, "config-name: release-drafter.yml", "release drafter config wiring");
+  assertContains(releaseDrafterWorkflowText, "release-drafter/release-drafter@", "release drafter action usage");
+  assertContains(releaseDrafterWorkflowText, "only maintains draft notes on master", "release drafter notes-only comment");
+}
+
+function validateReleaseDrafterConfig(releaseDrafterConfigText) {
+  assertContains(releaseDrafterConfigText, "Actual npm publication and smoke verification are tag-driven", "release drafter config notes-only comment");
+  assertContains(releaseDrafterConfigText, 'name-template: "v$NEXT_PATCH_VERSION"', "release drafter name template");
+  assertContains(releaseDrafterConfigText, 'tag-template: "v$NEXT_PATCH_VERSION"', "release drafter tag template");
+  assertContains(releaseDrafterConfigText, "## Changes", "release drafter notes template");
+}
+
 function validateNativeRuntimeAssertion(nativeRuntimeAssertionText) {
   assertContains(nativeRuntimeAssertionText, "MAXIMUS_RUST_BINARY_PLACEHOLDER", "native runtime placeholder marker check");
   assertContains(nativeRuntimeAssertionText, "node_modules", "native runtime node_modules lookup");
@@ -181,6 +222,24 @@ function validateReleaseContextAssertion(releaseContextAssertionText) {
   assertContains(releaseContextAssertionText, "release workflow must run from a tag ref", "release context tag gate");
   assertContains(releaseContextAssertionText, "package.json version", "release context package version gate");
   assertContains(releaseContextAssertionText, "GITHUB_OUTPUT", "release context GitHub output export");
+  assertContains(releaseContextAssertionText, "eventName === \"push\" || eventName === \"workflow_dispatch\"", "release context supported events");
+}
+
+function validateReleasePlanScript(releasePlanText) {
+  assertContains(releasePlanText, "distTag", "release plan dist-tag logic");
+  assertContains(releasePlanText, "next", "release plan prerelease dist-tag");
+  assertContains(releasePlanText, "latest", "release plan stable dist-tag");
+  assertContains(releasePlanText, "isPrerelease", "release plan prerelease flag");
+}
+
+function validateNpmLookupClassifier(lookupClassifierText) {
+  assertContains(lookupClassifierText, "not-found", "npm lookup not-found classification");
+  assertContains(lookupClassifierText, "registry-or-auth-failure", "npm lookup registry failure classification");
+}
+
+function validateNpmPublishClassifier(publishClassifierText) {
+  assertContains(publishClassifierText, "already-published", "npm publish already-published classification");
+  assertContains(publishClassifierText, "publish-failure", "npm publish failure classification");
 }
 
 function assertContains(text, expected, label) {

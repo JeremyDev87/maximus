@@ -1,5 +1,8 @@
 name: Release Drafter
 
+# This workflow only maintains draft notes on master. Tag-driven publication runs
+# through .github/workflows/release.yml after a verified release tag exists.
+
 on:
   push:
     branches:

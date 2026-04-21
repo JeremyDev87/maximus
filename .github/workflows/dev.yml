@@ -217,4 +217,4 @@ jobs:
         run: node ./scripts/validate-rust-release-wiring.mjs
 
       - name: Run focused release wiring test
-        run: node --test test/github-action-wiring.test.js
+        run: node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/npm-error-classifiers.test.js

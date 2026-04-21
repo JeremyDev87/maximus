@@ -1,3 +1,5 @@
+# Draft notes only. Actual npm publication and smoke verification are tag-driven
+# in .github/workflows/release.yml.
 name-template: "v$NEXT_PATCH_VERSION"
 tag-template: "v$NEXT_PATCH_VERSION"
 
