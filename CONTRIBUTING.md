@@ -10,6 +10,7 @@ Maximus now treats Rust as the canonical runtime for the published CLI, the npm 
 
 - `bin/maximus.js` is a thin launcher that prefers repository Rust builds and installed platform-specific Rust binaries.
 - `src/**/*.js` stays in the repository as frozen reference code for parity checks, golden output generation, and roadmap context. It also remains available as a compatibility fallback for legacy-compatible CLI invocations, but config auto-loading and Rust-only CLI flags must still run on the canonical Rust runtime.
+- New user-facing runtime or distribution behavior should land in the Rust crates, the thin launcher, and the docs. Do not treat `src/**/*.js` as the default implementation surface for new product behavior.
 - `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to expand the JS codebase directly.
 - `docs/plan/013+` and the older JS backlog are not the default implementation lane while the rewrite family is still being closed out.
 
@@ -64,6 +65,7 @@ Current repository layout keeps the JS source tree for reference, but new runtim
 - Update `README.md` if the user-facing behavior or supported checks change.
 - Avoid destructive fixes unless the user can clearly preview and understand them.
 - If the change belongs to the rewrite roadmap, keep README, `README.en.md`, `CONTRIBUTING.md`, package metadata, and transition docs aligned.
+- Do not land canonical CLI behavior only in the frozen JS reference tree unless the change is explicitly about parity/reference maintenance.
 
 ## Testing
 

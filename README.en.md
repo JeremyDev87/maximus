@@ -21,8 +21,9 @@ Modern projects stand on top of countless config layers like `tsconfig`, `eslint
 Maximus now uses the Rust runtime as its canonical implementation.
 
 - The root `maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
+- The published npm wrapper and GitHub Action also target that Rust runtime path by default.
 - The user-facing command surface stays the same: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
-- `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a compatibility fallback for legacy-compatible commands; Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
+- `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a limited compatibility fallback; it is no longer the primary implementation surface for new runtime or distribution behavior. Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
 - `docs/plan/001` through `012` are Rust v1 spec inputs, and `docs/plan/013+` plus the older JS backlog are no longer the default implementation lane.
 
 See the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) for the transition boundary, phase map, and contributor rules.
@@ -111,6 +112,8 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 
 `node ./bin/maximus.js` prefers the Rust CLI built inside the repository (`target/debug/maximus`, `target/release/maximus`) and otherwise looks for an installed platform-specific Rust binary. If you do not have a local binary yet, build one with `cargo build -p maximus-cli`. When no Rust runtime is available, `src/**/*.js` still provides a compatibility fallback for the basic `audit` / `doctor` / `fix --dry-run` flow, but config auto-loading and Rust-only flags such as `--only`, `--skip`, and `--fail-on` still require the native Rust runtime.
 
+That fallback path exists for compatibility verification and reference preservation. It is not the default development surface for new canonical runtime behavior.
+
 ## Recommended For
 
 - Teams running monorepos or multi-package repositories
@@ -119,7 +122,7 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 
 ## Contributing
 
-Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the canonical runtime and distribution surface are now Rust-first.
+Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the canonical runtime and distribution surface are now Rust-first and `src/**/*.js` is kept as frozen reference code.
 
 ## Security
 
