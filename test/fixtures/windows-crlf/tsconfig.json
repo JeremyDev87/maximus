@@ -1,0 +1,9 @@
+{
+  // Windows CRLF fixture
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@app/*": ["src/*"],
+    },
+  },
+}

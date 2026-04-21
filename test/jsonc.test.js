@@ -21,3 +21,14 @@ test("parseJsonc supports comments and trailing commas", () => {
     extends: "./tsconfig.base.json",
   });
 });
+
+test("parseJsonc supports CRLF line endings", () => {
+  const parsed = parseJsonc("{\r\n  // comment\r\n  \"compilerOptions\": {\r\n    \"baseUrl\": \".\",\r\n  },\r\n  \"extends\": \"./tsconfig.base.json\",\r\n}\r\n");
+
+  assert.deepEqual(parsed, {
+    compilerOptions: {
+      baseUrl: ".",
+    },
+    extends: "./tsconfig.base.json",
+  });
+});

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
@@ -221,4 +222,24 @@ test("imports comparison catches conditional wildcard suffix drift", async (t) =
   const audit = await auditProject(rootDir);
 
   assert.ok(audit.findings.some((finding) => finding.id.startsWith("tsconfig-import-conflict:")));
+});
+
+test("Windows CRLF tsconfig fixture is audited with normalized absolute paths", async () => {
+  const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "windows-crlf");
+  const audit = await auditProject(fixtureRoot);
+
+  assert.ok(
+    audit.findings.some(
+      (finding) =>
+        finding.id.startsWith("env-example-missing:") &&
+        finding.file === path.join(fixtureRoot, ".env"),
+    ),
+  );
+  assert.ok(
+    audit.findings.some(
+      (finding) =>
+        finding.id.startsWith("tsconfig-paths-missing:") &&
+        finding.file === path.join(fixtureRoot, "tsconfig.json"),
+    ),
+  );
 });
