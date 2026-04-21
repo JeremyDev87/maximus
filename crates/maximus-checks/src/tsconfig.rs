@@ -46,6 +46,17 @@ const CHECKABLE_EXTENSIONS: &[&str] = &[
     ".cjs", ".cts", ".js", ".json", ".jsx", ".mjs", ".mts", ".ts", ".tsx",
 ];
 
+enum CompositeResolution {
+    Enabled,
+    Disabled,
+    Issue {
+        suffix: &'static str,
+        title: &'static str,
+        detail: String,
+        hint: &'static str,
+    },
+}
+
 pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
 
@@ -75,8 +86,10 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
         };
 
         let compiler_options = config.get("compilerOptions").and_then(Value::as_object);
+        let references = config.get("references");
 
         collect_deprecated_option_findings(&mut findings, &file.path, compiler_options);
+        collect_project_reference_findings(&mut findings, &file.path, &file.dir, references)?;
 
         let Some(paths_config) = compiler_options.and_then(|options| options.get("paths")) else {
             continue;
@@ -131,7 +144,7 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
                         &base_dir,
                         &imports,
                         paths_config,
-                    );
+                    )?;
                 }
             }
         }
@@ -173,6 +186,282 @@ fn collect_deprecated_option_findings(
             severity: Some(Severity::Warn),
         }));
     }
+}
+
+fn collect_project_reference_findings(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    config_dir: &Path,
+    references: Option<&Value>,
+) -> io::Result<()> {
+    let Some(references) = references else {
+        return Ok(());
+    };
+    let Some(references) = references.as_array() else {
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-references-shape:{}",
+                file_path.to_string_lossy()
+            ),
+            title: "references must be an array".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(
+                "TypeScript project references must use an array of { path } entries."
+                    .to_string(),
+            ),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Rewrite references to the standard [{ \"path\": \"../pkg\" }] shape."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return Ok(());
+    };
+
+    for (index, reference) in references.iter().enumerate() {
+        let Some(reference_object) = reference.as_object() else {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-references-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "Each project reference entry must be an object with a path".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "references[{index}] must be an object like {{ \"path\": \"../pkg\" }}."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Replace malformed reference entries with explicit { path } objects."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        };
+        let Some(reference_path) = reference_object.get("path").and_then(Value::as_str) else {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-references-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "Each project reference entry must declare a string path".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "references[{index}] must declare a non-empty string path."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Use { \"path\": \"../pkg\" } entries so TypeScript can resolve referenced projects."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        };
+        if reference_path.trim().is_empty() {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-references-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "Each project reference entry must declare a string path".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "references[{index}] must declare a non-empty string path."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Use { \"path\": \"../pkg\" } entries so TypeScript can resolve referenced projects."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        }
+
+        let Some(target_config_path) = resolve_reference_config_path(config_dir, reference_path)?
+        else {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-references:{}:{reference_path}:missing",
+                    file_path.to_string_lossy()
+                ),
+                title: "Project reference target does not exist".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{reference_path} does not resolve to an existing tsconfig file."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Update stale project references before they break TypeScript build mode."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        };
+
+        let target_text = match read_text_if_exists(&target_config_path) {
+            Ok(Some(target_text)) => target_text,
+            Ok(None) => {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-references:{}:{reference_path}:unreadable",
+                        file_path.to_string_lossy()
+                    ),
+                    title: "Project reference target could not be read".to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(format!(
+                        "{reference_path} resolves to {}, but the file could not be read.",
+                        target_config_path.to_string_lossy()
+                    )),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(
+                        "Make sure referenced tsconfig files are readable before relying on project references."
+                            .to_string(),
+                    ),
+                    severity: Some(Severity::Error),
+                }));
+                continue;
+            }
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-references:{}:{reference_path}:unreadable",
+                        file_path.to_string_lossy()
+                    ),
+                    title: "Project reference target could not be read".to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(format!(
+                        "{reference_path} resolves to {}, but reading it failed: {error}.",
+                        target_config_path.to_string_lossy()
+                    )),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(
+                        "Make sure referenced tsconfig files are readable before relying on project references."
+                            .to_string(),
+                    ),
+                    severity: Some(Severity::Error),
+                }));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+
+        let target_config = match parse_jsonc::<Value>(&target_text, &target_config_path.to_string_lossy()) {
+            Ok(target_config) => target_config,
+            Err(error) => {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-references:{}:{reference_path}:parse",
+                        file_path.to_string_lossy()
+                    ),
+                    title: "Project reference target could not be parsed".to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(error.to_string()),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(
+                        "Fix invalid JSONC syntax in referenced tsconfig files before relying on project references."
+                            .to_string(),
+                    ),
+                    severity: Some(Severity::Error),
+                }));
+                continue;
+            }
+        };
+
+        if !looks_like_tsconfig_document(&target_config_path, &target_config) {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-references:{}:{reference_path}:invalid-target",
+                    file_path.to_string_lossy()
+                ),
+                title: "Project reference target must point to a tsconfig file".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{reference_path} resolves to {}, but that file does not look like a tsconfig document.",
+                    target_config_path.to_string_lossy()
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Point project references at a directory with tsconfig.json or an explicit tsconfig-style JSON file."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        }
+
+        match resolve_effective_composite(&target_config_path, &target_config)? {
+            CompositeResolution::Enabled => continue,
+            CompositeResolution::Disabled => {}
+            CompositeResolution::Issue {
+                suffix,
+                title,
+                detail,
+                hint,
+            } => {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-references:{}:{reference_path}:extends-{suffix}",
+                        file_path.to_string_lossy()
+                    ),
+                    title: title.to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(detail),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(hint.to_string()),
+                    severity: Some(Severity::Error),
+                }));
+                continue;
+            }
+        }
+
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-references:{}:{reference_path}:composite",
+                file_path.to_string_lossy()
+            ),
+            title: "Referenced project must enable composite".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "{reference_path} resolves to {}, but compilerOptions.composite is not true.",
+                target_config_path.to_string_lossy()
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Enable composite on referenced projects so TypeScript build mode can consume them reliably."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+    }
+
+    Ok(())
 }
 
 fn collect_paths_findings(
@@ -223,6 +512,8 @@ fn collect_paths_findings(
         }
 
         let alias_has_wildcard = alias.contains('*');
+        let mut missing_targets = Vec::new();
+        let mut has_existing_string_target = false;
         for target in targets {
             let Some(target) = target.as_str() else {
                 findings.push(make_finding(FindingInput {
@@ -265,27 +556,37 @@ fn collect_paths_findings(
                 }));
             }
 
-            if !alias_target_exists(base_dir, target)? {
-                findings.push(make_finding(FindingInput {
-                    id: format!(
-                        "tsconfig-paths-missing:{}:{alias}:{target}",
-                        file_path.to_string_lossy()
-                    ),
-                    title: "Path alias target does not exist".to_string(),
-                    category: Some("tsconfig".to_string()),
-                    detail: Some(format!(
-                        "{alias} points to {target}, but the resolved path was not found."
-                    )),
-                    file: Some(file_path.to_path_buf()),
-                    fix_ids: Vec::new(),
-                    fixable: false,
-                    hint: Some(
-                        "Update or remove stale aliases before they break editor and build resolution."
-                            .to_string(),
-                    ),
-                    severity: Some(Severity::Error),
-                }));
+            if alias_target_exists(base_dir, target)? {
+                has_existing_string_target = true;
+            } else {
+                missing_targets.push(target.to_string());
             }
+        }
+
+        if has_existing_string_target {
+            continue;
+        }
+
+        for target in missing_targets {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-paths-missing:{}:{alias}:{target}",
+                    file_path.to_string_lossy()
+                ),
+                title: "Path alias target does not exist".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{alias} points to {target}, but the resolved path was not found."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Update or remove stale aliases before they break editor and build resolution."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
         }
     }
 
@@ -299,25 +600,27 @@ fn compare_imports_and_paths(
     tsconfig_base_dir: &Path,
     imports: &Map<String, Value>,
     paths_config: &Map<String, Value>,
-) {
+) -> io::Result<()> {
     for (import_key, import_target) in imports {
         let Some(ts_targets) = paths_config.get(import_key).and_then(Value::as_array) else {
             continue;
         };
-        let Some(first_ts_target) = ts_targets.first().and_then(Value::as_str) else {
+        let Some(effective_ts_target) =
+            select_effective_tsconfig_target(tsconfig_base_dir, ts_targets)?
+        else {
             continue;
         };
-
-        let normalized_import_targets = normalize_import_targets(package_dir, import_target);
-        let Some(normalized_ts_target) =
-            normalize_comparable_target(tsconfig_base_dir, first_ts_target)
+        let Some(normalized_effective_ts_target) =
+            normalize_comparable_target(tsconfig_base_dir, &effective_ts_target)
         else {
             continue;
         };
 
-        if normalized_import_targets.is_empty()
-            || normalized_import_targets.contains(&normalized_ts_target)
-        {
+        let normalized_import_targets = normalize_import_targets(package_dir, import_target);
+        if normalized_import_targets.is_empty() {
+            continue;
+        }
+        if normalized_import_targets.contains(&normalized_effective_ts_target) {
             continue;
         }
 
@@ -331,7 +634,7 @@ fn compare_imports_and_paths(
             ),
             category: Some("tsconfig".to_string()),
             detail: Some(format!(
-                "tsconfig resolves to {first_ts_target}, while package.json imports resolves to {}.",
+                "tsconfig resolves to {effective_ts_target}, while package.json imports resolves to {}.",
                 stringify_import_target(import_target)
             )),
             file: Some(tsconfig_path.to_path_buf()),
@@ -344,6 +647,8 @@ fn compare_imports_and_paths(
             severity: Some(Severity::Warn),
         }));
     }
+
+    Ok(())
 }
 
 fn normalize_import_targets(package_dir: &Path, import_target: &Value) -> Vec<String> {
@@ -381,6 +686,280 @@ fn stringify_import_target(import_target: &Value) -> String {
         .as_str()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| serde_json::to_string(import_target).unwrap_or_default())
+}
+
+fn resolve_reference_config_path(base_dir: &Path, reference_path: &str) -> io::Result<Option<PathBuf>> {
+    let resolved = resolve_path(base_dir, reference_path);
+
+    if path_exists(&resolved) {
+        let metadata = fs::metadata(&resolved)?;
+        if metadata.is_dir() {
+            let directory_target = resolved.join("tsconfig.json");
+            if path_exists(&directory_target) {
+                return Ok(Some(directory_target));
+            }
+            return Ok(None);
+        }
+
+        return Ok(Some(resolved));
+    }
+
+    let directory_target = resolved.join("tsconfig.json");
+    if path_exists(&directory_target) {
+        return Ok(Some(directory_target));
+    }
+
+    Ok(None)
+}
+
+fn resolve_effective_composite(
+    config_path: &Path,
+    config: &Value,
+) -> io::Result<CompositeResolution> {
+    let mut visited = Vec::new();
+    resolve_effective_composite_inner(config_path, config, &mut visited)
+}
+
+fn resolve_effective_composite_inner(
+    config_path: &Path,
+    config: &Value,
+    visited: &mut Vec<PathBuf>,
+) -> io::Result<CompositeResolution> {
+    if let Some(compiler_options) = config.get("compilerOptions").and_then(Value::as_object) {
+        if let Some(composite_value) = compiler_options.get("composite") {
+            return match composite_value.as_bool() {
+                Some(true) => Ok(CompositeResolution::Enabled),
+                Some(false) => Ok(CompositeResolution::Disabled),
+                None => Ok(invalid_composite_type_issue(config_path, visited.is_empty())),
+            };
+        }
+    }
+
+    let Some(extends_path) = config.get("extends").and_then(Value::as_str) else {
+        return Ok(CompositeResolution::Disabled);
+    };
+    let Some(parent_config_path) = resolve_extends_config_path(
+        config_path.parent().unwrap_or_else(|| Path::new(".")),
+        extends_path,
+    ) else {
+        return Ok(CompositeResolution::Issue {
+            suffix: "missing",
+            title: "Inherited tsconfig could not be found",
+            detail: format!(
+                "Referenced project extends {extends_path}, but that config file could not be resolved."
+            ),
+            hint: "Make sure extends points at an existing tsconfig-style file before relying on inherited composite settings.",
+        });
+    };
+    if visited.contains(&parent_config_path) {
+        return Ok(CompositeResolution::Issue {
+            suffix: "cycle",
+            title: "Inherited tsconfig extends cycle detected",
+            detail: format!(
+                "Referenced project extends {}, but that path creates a cycle in the extends chain.",
+                parent_config_path.to_string_lossy()
+            ),
+            hint: "Break extends cycles before relying on inherited composite settings.",
+        });
+    }
+    visited.push(parent_config_path.clone());
+
+    let parent_text = match read_text_if_exists(&parent_config_path) {
+        Ok(Some(parent_text)) => parent_text,
+        Ok(None) => {
+            return Ok(CompositeResolution::Issue {
+                suffix: "unreadable",
+                title: "Inherited tsconfig could not be read",
+                detail: format!(
+                    "Referenced project extends {}, but that config file could not be read.",
+                    parent_config_path.to_string_lossy()
+                ),
+                hint: "Make sure extended tsconfig files are readable before relying on inherited composite settings.",
+            });
+        }
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            return Ok(CompositeResolution::Issue {
+                suffix: "unreadable",
+                title: "Inherited tsconfig could not be read",
+                detail: format!(
+                    "Referenced project extends {}, but reading it failed: {error}.",
+                    parent_config_path.to_string_lossy()
+                ),
+                hint: "Make sure extended tsconfig files are readable before relying on inherited composite settings.",
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    let parent_config = match parse_jsonc::<Value>(&parent_text, &parent_config_path.to_string_lossy()) {
+        Ok(parent_config) => parent_config,
+        Err(error) => {
+            return Ok(CompositeResolution::Issue {
+                suffix: "parse",
+                title: "Inherited tsconfig could not be parsed",
+                detail: error.to_string(),
+                hint: "Fix invalid JSONC syntax in extended tsconfig files before relying on inherited composite settings.",
+            });
+        }
+    };
+    if !looks_like_tsconfig_document(&parent_config_path, &parent_config) {
+        return Ok(CompositeResolution::Issue {
+            suffix: "invalid-target",
+            title: "Inherited config must point to a tsconfig file",
+            detail: format!(
+                "Referenced project extends {}, but that file does not look like a tsconfig document.",
+                parent_config_path.to_string_lossy()
+            ),
+            hint: "Point extends at a real tsconfig-style file before relying on inherited composite settings.",
+        });
+    }
+
+    resolve_effective_composite_inner(&parent_config_path, &parent_config, visited)
+}
+
+fn invalid_composite_type_issue(config_path: &Path, is_direct_target: bool) -> CompositeResolution {
+    if is_direct_target {
+        return CompositeResolution::Issue {
+            suffix: "composite-type",
+            title: "Referenced project must set compilerOptions.composite to a boolean",
+            detail: format!(
+                "{} declares compilerOptions.composite, but the value is not a boolean.",
+                config_path.to_string_lossy()
+            ),
+            hint: "Set compilerOptions.composite to true or false before relying on project references.",
+        };
+    }
+
+    CompositeResolution::Issue {
+        suffix: "extends-composite-type",
+        title: "Inherited tsconfig must set compilerOptions.composite to a boolean",
+        detail: format!(
+            "{} declares compilerOptions.composite, but the value is not a boolean.",
+            config_path.to_string_lossy()
+        ),
+        hint: "Set compilerOptions.composite to true or false in extended tsconfig files before relying on inherited settings.",
+    }
+}
+
+fn resolve_extends_config_path(base_dir: &Path, extends_path: &str) -> Option<PathBuf> {
+    let extends_candidate = Path::new(extends_path);
+    let is_local_extends = extends_candidate.is_absolute()
+        || extends_path.starts_with("./")
+        || extends_path.starts_with("../")
+        || extends_path.starts_with(".\\")
+        || extends_path.starts_with("..\\");
+    if is_local_extends {
+        return resolve_tsconfig_candidate(&resolve_path(base_dir, extends_path)).ok().flatten();
+    }
+
+    for ancestor in base_dir.ancestors() {
+        let candidate = ancestor.join("node_modules").join(extends_path);
+        if let Ok(Some(resolved)) = resolve_tsconfig_candidate(&candidate) {
+            return Some(resolved);
+        }
+    }
+
+    None
+}
+
+fn looks_like_tsconfig_document(file_path: &Path, config: &Value) -> bool {
+    if is_known_non_tsconfig_file(file_path) {
+        return false;
+    }
+
+    let Some(object) = config.as_object() else {
+        return false;
+    };
+
+    if object.is_empty() {
+        return looks_like_tsconfig_file_name(file_path)
+            || looks_like_explicit_tsconfig_target_file(file_path);
+    }
+
+    object.contains_key("$schema")
+        || object.contains_key("compileOnSave")
+        || object.contains_key("compilerOptions")
+        || object.contains_key("extends")
+        || object.contains_key("references")
+        || object.contains_key("files")
+        || object.contains_key("include")
+        || object.contains_key("exclude")
+        || object.contains_key("watchOptions")
+        || object.contains_key("typeAcquisition")
+}
+
+fn looks_like_explicit_tsconfig_target_file(file_path: &Path) -> bool {
+    if is_known_non_tsconfig_file(file_path) {
+        return false;
+    }
+
+    let Some(stem) = file_path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    stem == "build" || stem.starts_with("tsconfig")
+}
+
+fn looks_like_tsconfig_file_name(file_path: &Path) -> bool {
+    let Some(file_name) = file_path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    file_name == "tsconfig.json" || (file_name.starts_with("tsconfig.") && file_name.ends_with(".json"))
+}
+
+fn is_known_non_tsconfig_file(file_path: &Path) -> bool {
+    matches!(
+        file_path.file_name().and_then(|value| value.to_str()),
+        Some("package.json" | "package-lock.json" | "npm-shrinkwrap.json")
+    )
+}
+
+fn resolve_tsconfig_candidate(candidate: &Path) -> io::Result<Option<PathBuf>> {
+    if path_exists(candidate) {
+        let metadata = fs::metadata(candidate)?;
+        if metadata.is_dir() {
+            let directory_target = candidate.join("tsconfig.json");
+            if path_exists(&directory_target) {
+                return Ok(Some(directory_target));
+            }
+            return Ok(None);
+        }
+
+        return Ok(Some(candidate.to_path_buf()));
+    }
+
+    if candidate.extension().is_none() {
+        let file_target = candidate.with_extension("json");
+        if path_exists(&file_target) {
+            return Ok(Some(file_target));
+        }
+    }
+
+    let directory_target = candidate.join("tsconfig.json");
+    if path_exists(&directory_target) {
+        return Ok(Some(directory_target));
+    }
+
+    Ok(None)
+}
+
+fn select_effective_tsconfig_target(
+    base_dir: &Path,
+    ts_targets: &[Value],
+) -> io::Result<Option<String>> {
+    let mut first_string_target = None;
+
+    for target in ts_targets.iter().filter_map(Value::as_str) {
+        if first_string_target.is_none() {
+            first_string_target = Some(target.to_string());
+        }
+
+        if alias_target_exists(base_dir, target)? {
+            return Ok(Some(target.to_string()));
+        }
+    }
+
+    Ok(first_string_target)
 }
 
 fn alias_target_exists(base_dir: &Path, target: &str) -> io::Result<bool> {
