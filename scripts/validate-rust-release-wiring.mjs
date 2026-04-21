@@ -22,6 +22,8 @@ const requiredFiles = {
   releaseDrafterConfig: ".github/release-drafter.yml",
   readmeKo: "README.md",
   readmeEn: "README.en.md",
+  contributing: "CONTRIBUTING.md",
+  releaseRunbook: "docs/release-operator-runbook.md",
   releaseContextAssertion: "scripts/assert-release-workflow-context.mjs",
   releasePlan: "scripts/release-plan.mjs",
   npmLookupClassifier: "scripts/classify-npm-lookup-error.mjs",
@@ -40,6 +42,8 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   validateReleaseDrafterWorkflow(fileContents.releaseDrafterWorkflow);
   validateReleaseDrafterConfig(fileContents.releaseDrafterConfig);
   validateReadmes(fileContents.readmeKo, fileContents.readmeEn);
+  validateContributing(fileContents.contributing);
+  validateReleaseRunbook(fileContents.releaseRunbook);
   validateReleaseContextAssertion(fileContents.releaseContextAssertion);
   validateReleasePlanScript(fileContents.releasePlan);
   validateNpmLookupClassifier(fileContents.npmLookupClassifier);
@@ -191,15 +195,26 @@ function validateReadmes(readmeKoText, readmeEnText) {
   assertContains(readmeKoText, "## GitHub Action", "Korean README action section");
   assertContains(readmeKoText, "uses: JeremyDev87/maximus@<release-tag>", "Korean README action example");
   assertContains(readmeKoText, "예: `v0.1.0`", "Korean README release tag guidance");
+  assertContains(readmeKoText, "release operator runbook", "Korean README runbook link");
+  assertContains(readmeKoText, "draft notes", "Korean README draft notes wording");
   assertContains(readmeEnText, "npx @jeremyfellaz/maximus audit", "English README scoped npx example");
   assertContains(readmeEnText, "## GitHub Action", "English README action section");
   assertContains(readmeEnText, "uses: JeremyDev87/maximus@<release-tag>", "English README action example");
   assertContains(readmeEnText, "for example `v0.1.0`", "English README release tag guidance");
+  assertContains(readmeEnText, "release operator runbook", "English README runbook link");
+  assertContains(readmeEnText, "draft notes", "English README draft notes wording");
+}
+
+function validateContributing(contributingText) {
+  assertContains(contributingText, "docs/release-operator-runbook.md", "CONTRIBUTING runbook link");
+  assertContains(contributingText, "Release Drafter as draft-notes automation", "CONTRIBUTING release-drafter contract");
+  assertContains(contributingText, "node ./scripts/validate-rust-release-wiring.mjs", "CONTRIBUTING release validation command");
 }
 
 function validateReleaseDrafterWorkflow(releaseDrafterWorkflowText) {
   assertContains(releaseDrafterWorkflowText, "push:", "release drafter push trigger");
   assertContains(releaseDrafterWorkflowText, "workflow_dispatch:", "release drafter manual trigger");
+  assertContains(releaseDrafterWorkflowText, "if: github.ref == 'refs/heads/master'", "release drafter master-only guard");
   assertContains(releaseDrafterWorkflowText, "config-name: release-drafter.yml", "release drafter config wiring");
   assertContains(releaseDrafterWorkflowText, "release-drafter/release-drafter@", "release drafter action usage");
   assertContains(releaseDrafterWorkflowText, "only maintains draft notes on master", "release drafter notes-only comment");
@@ -210,6 +225,20 @@ function validateReleaseDrafterConfig(releaseDrafterConfigText) {
   assertContains(releaseDrafterConfigText, 'name-template: "v$NEXT_PATCH_VERSION"', "release drafter name template");
   assertContains(releaseDrafterConfigText, 'tag-template: "v$NEXT_PATCH_VERSION"', "release drafter tag template");
   assertContains(releaseDrafterConfigText, "## Changes", "release drafter notes template");
+}
+
+function validateReleaseRunbook(releaseRunbookText) {
+  assertContains(releaseRunbookText, "## Preflight Before Creating A New Tag", "runbook new-tag preflight section");
+  assertContains(releaseRunbookText, "## Preflight Before A Same-Tag Rerun", "runbook rerun preflight section");
+  assertContains(releaseRunbookText, 'git switch --detach "$RELEASE_TAG"', "runbook detached tag rerun command");
+  assertContains(releaseRunbookText, 'gh workflow run release.yml --ref v0.2.0 -f release_tag=v0.2.0', "runbook rerun workflow command");
+  assertContains(releaseRunbookText, 'npm view "@jeremyfellaz/maximus@$RELEASE_VERSION" version', "runbook exact root wrapper version check");
+  assertContains(releaseRunbookText, 'npm view "${package}@${RELEASE_VERSION}" version', "runbook exact platform package version check");
+  assertContains(releaseRunbookText, "Do not validate a same-tag rerun from a newer `master` checkout.", "runbook rerun master warning");
+
+  for (const packageName of platformPackages) {
+    assertContains(releaseRunbookText, packageName, `runbook platform package coverage for ${packageName}`);
+  }
 }
 
 function validateNativeRuntimeAssertion(nativeRuntimeAssertionText) {

@@ -69,6 +69,22 @@ Current repository layout keeps the JS source tree for reference, but new runtim
 - If the change belongs to the rewrite roadmap, keep README, `README.en.md`, `CONTRIBUTING.md`, package metadata, and transition docs aligned.
 - Do not land canonical CLI behavior only in the frozen JS reference tree unless the change is explicitly about parity/reference maintenance.
 
+## Release-Related Changes
+
+If your change touches release wiring, packaging, release notes automation, or packed-install behavior, keep the maintainer runbook and release-drafter contract aligned with the code.
+
+- Read [docs/release-operator-runbook.md](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) before changing the release model.
+- Treat Release Drafter as draft-notes automation for `master`, not as the publish workflow.
+- If you touch `.github/workflows/release.yml`, `.github/workflows/action-smoke.yml`, `.github/workflows/release-drafter.yml`, `.github/release-drafter.yml`, package publish metadata, or packed-wrapper smoke logic, run the release-specific checks before opening the PR.
+
+Recommended release-specific verification:
+
+```bash
+node ./scripts/validate-rust-release-wiring.mjs
+node --test test/github-action-wiring.test.js test/release-workflow-context.test.js test/release-plan.test.js
+npm test
+```
+
 ## Testing
 
 Before opening a pull request, run:
