@@ -102,6 +102,8 @@ Findings
 - `path`: 검사할 프로젝트 경로, 기본값 `.`
 - `<release-tag>`: publish된 릴리즈 태그로 바꿔 넣어야 합니다. 예: `v0.1.0`
 
+유지보수자가 실제 alpha/stable 릴리즈를 준비하거나 같은 태그를 안전하게 재실행할 때는 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)을 기준으로 진행합니다. Release Drafter는 `master`에서 draft notes만 갱신하며, 실제 publish는 tag-driven release workflow만 담당합니다.
+
 ## 로컬 개발
 
 ```bash
@@ -125,6 +127,8 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 새로운 점검기 추가, 자동 수정 안전성 개선, false positive 감소 같은 기여를 환영합니다. 다만 canonical runtime과 배포 표면은 이제 Rust 기준이며, `src/**/*.js`는 frozen reference로 유지됩니다. 기여 시작 전에는 [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md)와 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)를 먼저 확인해 주세요.
 
 체커를 추가하거나 기존 checker의 연결 구조를 확인할 때는 [checker authoring 아키텍처 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/architecture/checker-authoring.md)도 함께 보시면 현재 Rust crate 경계를 빠르게 맞출 수 있습니다.
+
+릴리즈 절차, alpha/stable 승격 순서, tag rerun 규칙은 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)에 따로 정리되어 있습니다.
 
 ## 보안
 

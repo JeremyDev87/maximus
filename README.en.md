@@ -102,6 +102,8 @@ Default inputs:
 - `path`: project path to inspect, default `.`
 - `<release-tag>`: replace this with a published release tag, for example `v0.1.0`
 
+Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication stays in the tag-driven release workflow.
+
 ## Local Development
 
 ```bash
@@ -123,6 +125,8 @@ That fallback path exists for compatibility verification and reference preservat
 ## Contributing
 
 Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the canonical runtime and distribution surface are now Rust-first and `src/**/*.js` is kept as frozen reference code.
+
+For release preparation, promotion, or rerun policy, use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md).
 
 ## Security
 
