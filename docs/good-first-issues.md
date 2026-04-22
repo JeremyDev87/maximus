@@ -16,7 +16,7 @@ Read these first:
 
 | Topic | Difficulty | Why it is a good first issue | Start here | Validation |
 | --- | --- | --- | --- | --- |
-| Empty `include` and `exclude` pattern diagnostics in `tsconfig` | Small | One checker, one fixture family, easy failing case | `crates/maximus-checks/src/tsconfig.rs`, `crates/maximus-checks/tests/tsconfig_checks.rs` | `cargo test -p maximus-checks --test tsconfig_checks`, `npm test`, `node ./bin/maximus.js audit <fixture>` |
+| Add one `tsconfig` regression case around false positives or missing diagnostics | Small | One checker, one fixture family, and a tight validation path | `crates/maximus-checks/src/tsconfig.rs`, `crates/maximus-checks/tests/tsconfig_checks.rs` | `cargo test -p maximus-checks --test tsconfig_checks`, `npm test`, `node ./bin/maximus.js audit <fixture>` |
 | Add one new `package-entrypoints` regression case | Small | The checker is already isolated and heavily test-driven | `crates/maximus-checks/src/package_entrypoints.rs`, `crates/maximus-checks/tests/package_entrypoints_checks.rs` | targeted Cargo test, `cargo test --workspace`, `npm test` |
 | Expand filesystem edge-case fixtures | Small to Medium | Mostly test and fixture work, with low risk to user-facing behavior | `test/fixtures/`, `crates/maximus-checks/tests/`, `test/*.test.js` | targeted tests, `npm test` |
 | Add one snapshot-style audit or doctor regression | Small | Good introduction to report output without changing core discovery logic | `test/golden-rust/`, `test/reference-parity.test.js`, related CLI tests | targeted Node tests, `npm test` |

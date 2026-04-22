@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -45,6 +46,11 @@ const DEPRECATED_COMPILER_OPTIONS: &[(&str, &str)] = &[
 const CHECKABLE_EXTENSIONS: &[&str] = &[
     ".cjs", ".cts", ".js", ".json", ".jsx", ".mjs", ".mts", ".ts", ".tsx",
 ];
+const TS_PATTERN_EXTENSIONS: &[&str] =
+    &[".cts", ".d.cts", ".d.mts", ".d.ts", ".mts", ".ts", ".tsx"];
+const TS_PATTERN_EXTENSIONS_WITH_JS: &[&str] = &[
+    ".cjs", ".cts", ".d.cts", ".d.mts", ".d.ts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx",
+];
 
 enum CompositeResolution {
     Enabled,
@@ -55,6 +61,43 @@ enum CompositeResolution {
         detail: String,
         hint: &'static str,
     },
+}
+
+#[derive(Default)]
+struct EffectivePatternOptions {
+    allow_js: bool,
+    out_dir: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+struct EffectivePatternField {
+    values: Vec<String>,
+    base_dir: PathBuf,
+    config_path: PathBuf,
+}
+
+#[derive(Default)]
+struct EffectivePatternConfig {
+    options: EffectivePatternOptions,
+    include: Option<EffectivePatternField>,
+    exclude: Option<EffectivePatternField>,
+    files: Option<EffectivePatternField>,
+    issues: Vec<PatternFieldIssue>,
+}
+
+struct PatternFieldIssue {
+    field_name: &'static str,
+    config_path: PathBuf,
+    suffix: String,
+    title: String,
+    detail: String,
+    hint: &'static str,
+}
+
+enum ExtendedPatternConfigDocument {
+    None,
+    Loaded(PathBuf, Value),
+    Issue(PatternFieldIssue),
 }
 
 pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
@@ -90,6 +133,7 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
 
         collect_deprecated_option_findings(&mut findings, &file.path, compiler_options);
         collect_project_reference_findings(&mut findings, &file.path, &file.dir, references)?;
+        collect_include_exclude_pattern_findings(&mut findings, &file.path, &file.dir, &config)?;
 
         let Some(paths_config) = compiler_options.and_then(|options| options.get("paths")) else {
             continue;
@@ -199,22 +243,17 @@ fn collect_project_reference_findings(
     };
     let Some(references) = references.as_array() else {
         findings.push(make_finding(FindingInput {
-            id: format!(
-                "tsconfig-references-shape:{}",
-                file_path.to_string_lossy()
-            ),
+            id: format!("tsconfig-references-shape:{}", file_path.to_string_lossy()),
             title: "references must be an array".to_string(),
             category: Some("tsconfig".to_string()),
             detail: Some(
-                "TypeScript project references must use an array of { path } entries."
-                    .to_string(),
+                "TypeScript project references must use an array of { path } entries.".to_string(),
             ),
             file: Some(file_path.to_path_buf()),
             fix_ids: Vec::new(),
             fixable: false,
             hint: Some(
-                "Rewrite references to the standard [{ \"path\": \"../pkg\" }] shape."
-                    .to_string(),
+                "Rewrite references to the standard [{ \"path\": \"../pkg\" }] shape.".to_string(),
             ),
             severity: Some(Severity::Error),
         }));
@@ -364,7 +403,10 @@ fn collect_project_reference_findings(
             Err(error) => return Err(error),
         };
 
-        let target_config = match parse_jsonc::<Value>(&target_text, &target_config_path.to_string_lossy()) {
+        let target_config = match parse_jsonc::<Value>(
+            &target_text,
+            &target_config_path.to_string_lossy(),
+        ) {
             Ok(target_config) => target_config,
             Err(error) => {
                 findings.push(make_finding(FindingInput {
@@ -593,6 +635,322 @@ fn collect_paths_findings(
     Ok(())
 }
 
+fn collect_include_exclude_pattern_findings(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    config_dir: &Path,
+    config: &Value,
+) -> io::Result<()> {
+    let base_dir = normalize_path(config_dir);
+    let effective_pattern_config = resolve_effective_pattern_config(file_path, config)?;
+
+    for issue in &effective_pattern_config.issues {
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-patterns-shape:{}:{}:{}:{}",
+                file_path.to_string_lossy(),
+                issue.field_name,
+                issue.suffix,
+                issue.config_path.to_string_lossy()
+            ),
+            title: issue.title.clone(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(issue.detail.clone()),
+            file: Some(issue.config_path.clone()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(issue.hint.to_string()),
+            severity: Some(Severity::Error),
+        }));
+    }
+
+    let candidate_extensions = ts_pattern_extensions(effective_pattern_config.options.allow_js);
+    let default_excluded_dirs = collect_default_excluded_dirs(&effective_pattern_config.options);
+    let (explicit_files, explicit_file_issues) = collect_explicit_tsconfig_files(
+        effective_pattern_config.files.as_ref(),
+        candidate_extensions,
+    )?;
+    for issue in explicit_file_issues {
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-patterns-shape:{}:{}:{}:{}",
+                file_path.to_string_lossy(),
+                issue.field_name,
+                issue.suffix,
+                issue.config_path.to_string_lossy()
+            ),
+            title: issue.title,
+            category: Some("tsconfig".to_string()),
+            detail: Some(issue.detail),
+            file: Some(issue.config_path),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(issue.hint.to_string()),
+            severity: Some(Severity::Error),
+        }));
+    }
+    let mut exclude_eligible_files = if effective_pattern_config.include.is_some()
+        || effective_pattern_config.files.is_some()
+    {
+        BTreeSet::new()
+    } else {
+        collect_default_pattern_matches(&base_dir, candidate_extensions, &default_excluded_dirs)?
+    };
+
+    if let Some(include_field) = effective_pattern_config.include.as_ref() {
+        for pattern in &include_field.values {
+            let matches = collect_pattern_matches(
+                &include_field.base_dir,
+                pattern,
+                candidate_extensions,
+                &default_excluded_dirs,
+            )?;
+            if matches.is_empty() {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-patterns:{}:include:{pattern}",
+                        file_path.to_string_lossy()
+                    ),
+                    title: "Include pattern does not match any files".to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(format!(
+                        "include pattern \"{pattern}\" matched 0 files under base dir {}.",
+                        include_field.base_dir.to_string_lossy()
+                    )),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(
+                        "Fix or remove empty include patterns before TypeScript silently skips expected inputs."
+                            .to_string(),
+                    ),
+                    severity: Some(Severity::Warn),
+                }));
+                continue;
+            }
+
+            exclude_eligible_files.extend(matches);
+        }
+    }
+
+    let mut included_files = explicit_files.clone();
+    included_files.extend(exclude_eligible_files.iter().cloned());
+
+    if included_files.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(exclude_field) = effective_pattern_config.exclude.as_ref() {
+        for pattern in &exclude_field.values {
+            let effective_included_count = explicit_files.len() + exclude_eligible_files.len();
+            let matches = exclude_eligible_files
+                .iter()
+                .filter(|candidate| {
+                    pattern_matches_file(
+                        &exclude_field.base_dir,
+                        pattern,
+                        candidate,
+                        candidate_extensions,
+                        &default_excluded_dirs,
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let removed_count = matches.len();
+
+            if removed_count == 0 {
+                findings.push(make_finding(FindingInput {
+                    id: format!(
+                        "tsconfig-patterns:{}:exclude:{pattern}",
+                        file_path.to_string_lossy()
+                    ),
+                    title: "Exclude pattern does not filter any included files".to_string(),
+                    category: Some("tsconfig".to_string()),
+                    detail: Some(format!(
+                        "exclude pattern \"{pattern}\" removed 0 files from {} included file(s) under base dir {}.",
+                        effective_included_count,
+                        exclude_field.base_dir.to_string_lossy()
+                    )),
+                    file: Some(file_path.to_path_buf()),
+                    fix_ids: Vec::new(),
+                    fixable: false,
+                    hint: Some(
+                        "Remove or tighten exclude entries that do not change the effective TypeScript input set."
+                            .to_string(),
+                    ),
+                    severity: Some(Severity::Info),
+                }));
+                continue;
+            }
+
+            for matched in matches {
+                exclude_eligible_files.remove(&matched);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_explicit_tsconfig_files(
+    files_field: Option<&EffectivePatternField>,
+    candidate_extensions: &[&str],
+) -> io::Result<(BTreeSet<PathBuf>, Vec<PatternFieldIssue>)> {
+    let Some(files_field) = files_field else {
+        return Ok((BTreeSet::new(), Vec::new()));
+    };
+
+    let mut explicit_files = BTreeSet::new();
+    let mut issues = Vec::new();
+
+    for (index, file) in files_field.values.iter().enumerate() {
+        if file.trim().is_empty() {
+            continue;
+        }
+        if pattern_contains_wildcard(file) {
+            issues.push(PatternFieldIssue {
+                field_name: "files",
+                config_path: files_field.config_path.clone(),
+                suffix: format!("entry-{index}-wildcard"),
+                title: "\"files\" entries must point to explicit files".to_string(),
+                detail: format!(
+                    "{} declares files[{index}] as {file}, but TypeScript files entries cannot use glob wildcards.",
+                    files_field.config_path.to_string_lossy()
+                ),
+                hint: pattern_field_hint("files"),
+            });
+            continue;
+        }
+
+        let resolved = resolve_path(&files_field.base_dir, file);
+        if path_exists(&resolved) {
+            let metadata = match fs::metadata(&resolved) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                    issues.push(PatternFieldIssue {
+                        field_name: "files",
+                        config_path: files_field.config_path.clone(),
+                        suffix: format!("entry-{index}-unreadable"),
+                        title: "\"files\" entries must point to readable files".to_string(),
+                        detail: format!(
+                            "{} declares files[{index}] as {file}, but reading that path failed: {error}.",
+                            files_field.config_path.to_string_lossy()
+                        ),
+                        hint: pattern_field_hint("files"),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            if metadata.is_dir() {
+                issues.push(PatternFieldIssue {
+                    field_name: "files",
+                    config_path: files_field.config_path.clone(),
+                    suffix: format!("entry-{index}-directory"),
+                    title: "\"files\" entries must point to files".to_string(),
+                    detail: format!(
+                        "{} declares files[{index}] as {file}, but that path resolves to a directory.",
+                        files_field.config_path.to_string_lossy()
+                    ),
+                    hint: pattern_field_hint("files"),
+                });
+                continue;
+            }
+            if metadata.is_file() && is_ts_pattern_candidate_file(&resolved, candidate_extensions) {
+                explicit_files.insert(normalize_path(&resolved));
+                continue;
+            }
+
+            issues.push(PatternFieldIssue {
+                field_name: "files",
+                config_path: files_field.config_path.clone(),
+                suffix: format!("entry-{index}-unsupported"),
+                title: "\"files\" entries must point to supported TypeScript input files".to_string(),
+                detail: format!(
+                    "{} declares files[{index}] as {file}, but that file is not a supported TypeScript input.",
+                    files_field.config_path.to_string_lossy()
+                ),
+                hint: pattern_field_hint("files"),
+            });
+            continue;
+        }
+
+        if has_explicit_extension(file) {
+            issues.push(PatternFieldIssue {
+                field_name: "files",
+                config_path: files_field.config_path.clone(),
+                suffix: format!("entry-{index}-missing"),
+                title: "\"files\" entries must point to existing files".to_string(),
+                detail: format!(
+                    "{} declares files[{index}] as {file}, but that path does not resolve to an existing file.",
+                    files_field.config_path.to_string_lossy()
+                ),
+                hint: pattern_field_hint("files"),
+            });
+            continue;
+        }
+
+        let resolved_string = resolved.to_string_lossy();
+        let mut matched_extension = false;
+        for extension in candidate_extensions {
+            let candidate = PathBuf::from(format!("{resolved_string}{extension}"));
+            if path_exists(&candidate) && fs::metadata(&candidate)?.is_file() {
+                explicit_files.insert(normalize_path(&candidate));
+                matched_extension = true;
+            }
+        }
+        if !matched_extension {
+            issues.push(PatternFieldIssue {
+                field_name: "files",
+                config_path: files_field.config_path.clone(),
+                suffix: format!("entry-{index}-missing"),
+                title: "\"files\" entries must point to existing files".to_string(),
+                detail: format!(
+                    "{} declares files[{index}] as {file}, but that path does not resolve to an existing file.",
+                    files_field.config_path.to_string_lossy()
+                ),
+                hint: pattern_field_hint("files"),
+            });
+        }
+    }
+
+    Ok((explicit_files, issues))
+}
+
+fn collect_default_excluded_dirs(
+    effective_pattern_options: &EffectivePatternOptions,
+) -> Vec<PathBuf> {
+    effective_pattern_options.out_dir.iter().cloned().collect()
+}
+
+fn ts_pattern_extensions(allow_js: bool) -> &'static [&'static str] {
+    if allow_js {
+        TS_PATTERN_EXTENSIONS_WITH_JS
+    } else {
+        TS_PATTERN_EXTENSIONS
+    }
+}
+
+fn should_skip_default_pattern_dir(path: &Path, default_excluded_dirs: &[PathBuf]) -> bool {
+    let path = normalize_path(path);
+    if path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| matches!(value, "node_modules" | "bower_components" | "jspm_packages"))
+    {
+        return true;
+    }
+
+    is_within_default_excluded_dir(&path, default_excluded_dirs)
+}
+
+fn is_within_default_excluded_dir(path: &Path, default_excluded_dirs: &[PathBuf]) -> bool {
+    let path = normalize_path(path);
+    default_excluded_dirs
+        .iter()
+        .any(|excluded_dir| path.starts_with(excluded_dir))
+}
+
 fn compare_imports_and_paths(
     findings: &mut Vec<Finding>,
     tsconfig_path: &Path,
@@ -688,7 +1046,10 @@ fn stringify_import_target(import_target: &Value) -> String {
         .unwrap_or_else(|| serde_json::to_string(import_target).unwrap_or_default())
 }
 
-fn resolve_reference_config_path(base_dir: &Path, reference_path: &str) -> io::Result<Option<PathBuf>> {
+fn resolve_reference_config_path(
+    base_dir: &Path,
+    reference_path: &str,
+) -> io::Result<Option<PathBuf>> {
     let resolved = resolve_path(base_dir, reference_path);
 
     if path_exists(&resolved) {
@@ -730,7 +1091,10 @@ fn resolve_effective_composite_inner(
             return match composite_value.as_bool() {
                 Some(true) => Ok(CompositeResolution::Enabled),
                 Some(false) => Ok(CompositeResolution::Disabled),
-                None => Ok(invalid_composite_type_issue(config_path, visited.is_empty())),
+                None => Ok(invalid_composite_type_issue(
+                    config_path,
+                    visited.is_empty(),
+                )),
             };
         }
     }
@@ -790,7 +1154,10 @@ fn resolve_effective_composite_inner(
         }
         Err(error) => return Err(error),
     };
-    let parent_config = match parse_jsonc::<Value>(&parent_text, &parent_config_path.to_string_lossy()) {
+    let parent_config = match parse_jsonc::<Value>(
+        &parent_text,
+        &parent_config_path.to_string_lossy(),
+    ) {
         Ok(parent_config) => parent_config,
         Err(error) => {
             return Ok(CompositeResolution::Issue {
@@ -840,6 +1207,150 @@ fn invalid_composite_type_issue(config_path: &Path, is_direct_target: bool) -> C
     }
 }
 
+fn resolve_effective_pattern_config(
+    config_path: &Path,
+    config: &Value,
+) -> io::Result<EffectivePatternConfig> {
+    let mut visited = Vec::new();
+    resolve_effective_pattern_config_inner(config_path, config, &mut visited)
+}
+
+fn resolve_effective_pattern_config_inner(
+    config_path: &Path,
+    config: &Value,
+    visited: &mut Vec<PathBuf>,
+) -> io::Result<EffectivePatternConfig> {
+    let normalized_config_path = normalize_path(config_path);
+    if visited.contains(&normalized_config_path) {
+        return Ok(EffectivePatternConfig::default());
+    }
+    visited.push(normalized_config_path);
+
+    let mut effective_config = match load_extended_tsconfig_document(config_path, config, visited)? {
+        ExtendedPatternConfigDocument::Loaded(parent_config_path, parent_config) => {
+            resolve_effective_pattern_config_inner(&parent_config_path, &parent_config, visited)?
+        }
+        ExtendedPatternConfigDocument::Issue(issue) => EffectivePatternConfig {
+            issues: vec![issue],
+            ..EffectivePatternConfig::default()
+        },
+        ExtendedPatternConfigDocument::None => EffectivePatternConfig::default(),
+    };
+
+    if let Some(compiler_options) = config.get("compilerOptions").and_then(Value::as_object) {
+        if let Some(allow_js) = compiler_options.get("allowJs").and_then(Value::as_bool) {
+            effective_config.options.allow_js = allow_js;
+        }
+
+        if let Some(out_dir) = compiler_options.get("outDir").and_then(Value::as_str) {
+            effective_config.options.out_dir = Some(resolve_path(
+                config_path.parent().unwrap_or_else(|| Path::new(".")),
+                out_dir,
+            ));
+        }
+    }
+
+    if let Some(config_object) = config.as_object() {
+        apply_pattern_field_override(&mut effective_config, config_object, "include", config_path);
+        apply_pattern_field_override(&mut effective_config, config_object, "exclude", config_path);
+        apply_pattern_field_override(&mut effective_config, config_object, "files", config_path);
+    }
+
+    visited.pop();
+    Ok(effective_config)
+}
+
+fn apply_pattern_field_override(
+    effective_config: &mut EffectivePatternConfig,
+    config_object: &Map<String, Value>,
+    field_name: &'static str,
+    config_path: &Path,
+) {
+    let Some(value) = config_object.get(field_name) else {
+        return;
+    };
+
+    effective_config
+        .issues
+        .retain(|issue| issue.field_name != field_name);
+    let (field, issues) = parse_effective_pattern_field(field_name, value, config_path);
+    match field_name {
+        "include" => effective_config.include = Some(field),
+        "exclude" => effective_config.exclude = Some(field),
+        "files" => effective_config.files = Some(field),
+        _ => {}
+    }
+    effective_config.issues.extend(issues);
+}
+
+fn parse_effective_pattern_field(
+    field_name: &'static str,
+    value: &Value,
+    config_path: &Path,
+) -> (EffectivePatternField, Vec<PatternFieldIssue>) {
+    let base_dir = normalize_path(config_path.parent().unwrap_or_else(|| Path::new(".")));
+    let mut issues = Vec::new();
+
+    let Some(values) = value.as_array() else {
+        issues.push(PatternFieldIssue {
+            field_name,
+            config_path: config_path.to_path_buf(),
+            suffix: "shape".to_string(),
+            title: format!("\"{field_name}\" must be an array of strings"),
+            detail: format!(
+                "{} declares {field_name}, but TypeScript expects an array of string patterns.",
+                config_path.to_string_lossy()
+            ),
+            hint: pattern_field_hint(field_name),
+        });
+        return (
+            EffectivePatternField {
+                values: Vec::new(),
+                base_dir,
+                config_path: config_path.to_path_buf(),
+            },
+            issues,
+        );
+    };
+
+    let mut collected_values = Vec::new();
+    for (index, entry) in values.iter().enumerate() {
+        let Some(pattern) = entry.as_str() else {
+            issues.push(PatternFieldIssue {
+                field_name,
+                config_path: config_path.to_path_buf(),
+                suffix: format!("entry-{index}"),
+                title: format!("\"{field_name}\" contains a non-string pattern"),
+                detail: format!(
+                    "{} declares {field_name}[{index}], but TypeScript expects string patterns.",
+                    config_path.to_string_lossy()
+                ),
+                hint: pattern_field_hint(field_name),
+            });
+            continue;
+        };
+        collected_values.push(pattern.to_string());
+    }
+
+    (
+        EffectivePatternField {
+            values: collected_values,
+            base_dir,
+            config_path: config_path.to_path_buf(),
+        },
+        issues,
+    )
+}
+
+fn pattern_field_hint(field_name: &str) -> &'static str {
+    match field_name {
+        "include" => "Rewrite include as an array of string globs before relying on TypeScript input discovery.",
+        "exclude" => "Rewrite exclude as an array of string globs before relying on TypeScript input filtering.",
+        "files" => "Rewrite files as an array of string paths before relying on explicit TypeScript inputs.",
+        _ => "Rewrite tsconfig pattern fields as arrays of strings.",
+    }
+}
+
 fn resolve_extends_config_path(base_dir: &Path, extends_path: &str) -> Option<PathBuf> {
     let extends_candidate = Path::new(extends_path);
     let is_local_extends = extends_candidate.is_absolute()
@@ -848,7 +1359,9 @@ fn resolve_extends_config_path(base_dir: &Path, extends_path: &str) -> Option<Pa
         || extends_path.starts_with(".\\")
         || extends_path.starts_with("..\\");
     if is_local_extends {
-        return resolve_tsconfig_candidate(&resolve_path(base_dir, extends_path)).ok().flatten();
+        return resolve_tsconfig_candidate(&resolve_path(base_dir, extends_path))
+            .ok()
+            .flatten();
     }
 
     for ancestor in base_dir.ancestors() {
@@ -859,6 +1372,127 @@ fn resolve_extends_config_path(base_dir: &Path, extends_path: &str) -> Option<Pa
     }
 
     None
+}
+
+fn load_extended_tsconfig_document(
+    config_path: &Path,
+    config: &Value,
+    visited: &[PathBuf],
+) -> io::Result<ExtendedPatternConfigDocument> {
+    let Some(extends_path) = config.get("extends").and_then(Value::as_str) else {
+        return Ok(ExtendedPatternConfigDocument::None);
+    };
+    let Some(parent_config_path) = resolve_extends_config_path(
+        config_path.parent().unwrap_or_else(|| Path::new(".")),
+        extends_path,
+    ) else {
+        return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+            "missing",
+            config_path.to_path_buf(),
+            "Inherited tsconfig could not be found".to_string(),
+            format!(
+                "{} extends {extends_path}, but that config file could not be resolved.",
+                config_path.to_string_lossy()
+            ),
+            "Fix missing extends targets before relying on inherited tsconfig pattern settings.",
+        )));
+    };
+    if visited_contains_path(visited, &parent_config_path) {
+        return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+            "cycle",
+            parent_config_path.clone(),
+            "Inherited tsconfig extends cycle detected".to_string(),
+            format!(
+                "{} creates a cycle in the extends chain for pattern resolution.",
+                parent_config_path.to_string_lossy()
+            ),
+            "Break extends cycles before relying on inherited tsconfig pattern settings.",
+        )));
+    };
+
+    let parent_text = match read_text_if_exists(&parent_config_path) {
+        Ok(Some(parent_text)) => parent_text,
+        Ok(None) => {
+            return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+                "unreadable",
+                parent_config_path.clone(),
+                "Inherited tsconfig could not be read".to_string(),
+                format!(
+                    "{} extends {}, but that config file could not be read.",
+                    config_path.to_string_lossy(),
+                    parent_config_path.to_string_lossy()
+                ),
+                "Make sure extended tsconfig files are readable before relying on inherited pattern settings.",
+            )))
+        }
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+                "unreadable",
+                parent_config_path.clone(),
+                "Inherited tsconfig could not be read".to_string(),
+                format!(
+                    "{} extends {}, but reading it failed: {error}.",
+                    config_path.to_string_lossy(),
+                    parent_config_path.to_string_lossy()
+                ),
+                "Make sure extended tsconfig files are readable before relying on inherited pattern settings.",
+            )))
+        }
+        Err(error) => return Err(error),
+    };
+    let parent_config =
+        match parse_jsonc::<Value>(&parent_text, &parent_config_path.to_string_lossy()) {
+            Ok(parent_config) => parent_config,
+            Err(error) => {
+                return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+                    "parse",
+                    parent_config_path.clone(),
+                    "Inherited tsconfig could not be parsed".to_string(),
+                    error.to_string(),
+                    "Fix invalid JSONC syntax in extended tsconfig files before relying on inherited pattern settings.",
+                )))
+            }
+        };
+    if !looks_like_tsconfig_document(&parent_config_path, &parent_config) {
+        return Ok(ExtendedPatternConfigDocument::Issue(pattern_extends_issue(
+            "invalid-target",
+            parent_config_path.clone(),
+            "Inherited config must point to a tsconfig file".to_string(),
+            format!(
+                "{} extends {}, but that file does not look like a tsconfig document.",
+                config_path.to_string_lossy(),
+                parent_config_path.to_string_lossy()
+            ),
+            "Point extends at a real tsconfig-style file before relying on inherited pattern settings.",
+        )));
+    }
+
+    Ok(ExtendedPatternConfigDocument::Loaded(
+        parent_config_path,
+        parent_config,
+    ))
+}
+
+fn visited_contains_path(visited: &[PathBuf], candidate: &Path) -> bool {
+    let candidate = normalize_path(candidate);
+    visited.contains(&candidate)
+}
+
+fn pattern_extends_issue(
+    suffix: &str,
+    config_path: PathBuf,
+    title: String,
+    detail: String,
+    hint: &'static str,
+) -> PatternFieldIssue {
+    PatternFieldIssue {
+        field_name: "extends",
+        config_path,
+        suffix: suffix.to_string(),
+        title,
+        detail,
+        hint,
+    }
 }
 
 fn looks_like_tsconfig_document(file_path: &Path, config: &Value) -> bool {
@@ -904,7 +1538,8 @@ fn looks_like_tsconfig_file_name(file_path: &Path) -> bool {
         return false;
     };
 
-    file_name == "tsconfig.json" || (file_name.starts_with("tsconfig.") && file_name.ends_with(".json"))
+    file_name == "tsconfig.json"
+        || (file_name.starts_with("tsconfig.") && file_name.ends_with(".json"))
 }
 
 fn is_known_non_tsconfig_file(file_path: &Path) -> bool {
@@ -1058,7 +1693,7 @@ fn matches_path(candidate_path: &Path, patterns: &[String]) -> bool {
     let normalized_path = normalize_path_for_match(candidate_path);
     patterns
         .iter()
-        .any(|pattern| wildcard_pattern_matches(&normalized_path, pattern))
+        .any(|pattern| pattern_matches_candidate(&normalized_path, pattern))
 }
 
 fn build_wildcard_patterns(base_dir: &Path, target: &str) -> Vec<String> {
@@ -1083,13 +1718,77 @@ fn has_explicit_extension(target: &str) -> bool {
 }
 
 fn wildcard_pattern_matches(candidate: &str, pattern: &str) -> bool {
-    let candidate_chars = candidate.chars().collect::<Vec<_>>();
-    let pattern_chars = pattern.chars().collect::<Vec<_>>();
-    let mut memo = vec![vec![None; pattern_chars.len() + 1]; candidate_chars.len() + 1];
+    fn segment_pattern_matches(candidate: &str, pattern: &str) -> bool {
+        let candidate_chars = candidate.chars().collect::<Vec<_>>();
+        let pattern_chars = pattern.chars().collect::<Vec<_>>();
+        let mut memo = vec![vec![None; pattern_chars.len() + 1]; candidate_chars.len() + 1];
 
-    fn matches(
-        candidate: &[char],
-        pattern: &[char],
+        fn matches(
+            candidate: &[char],
+            pattern: &[char],
+            candidate_index: usize,
+            pattern_index: usize,
+            memo: &mut [Vec<Option<bool>>],
+        ) -> bool {
+            if let Some(result) = memo[candidate_index][pattern_index] {
+                return result;
+            }
+
+            let result = if pattern_index == pattern.len() {
+                candidate_index == candidate.len()
+            } else if pattern[pattern_index] == '*' {
+                let mut offset = candidate_index;
+                let mut matched = false;
+                while offset <= candidate.len() {
+                    if matches(candidate, pattern, offset, pattern_index + 1, memo) {
+                        matched = true;
+                        break;
+                    }
+                    if offset == candidate.len() {
+                        break;
+                    }
+                    offset += 1;
+                }
+                matched
+            } else if candidate_index < candidate.len()
+                && pattern[pattern_index] == '?'
+                && candidate[candidate_index] != '/'
+            {
+                matches(
+                    candidate,
+                    pattern,
+                    candidate_index + 1,
+                    pattern_index + 1,
+                    memo,
+                )
+            } else if candidate_index < candidate.len()
+                && candidate[candidate_index] == pattern[pattern_index]
+            {
+                matches(
+                    candidate,
+                    pattern,
+                    candidate_index + 1,
+                    pattern_index + 1,
+                    memo,
+                )
+            } else {
+                false
+            };
+
+            memo[candidate_index][pattern_index] = Some(result);
+            result
+        }
+
+        matches(&candidate_chars, &pattern_chars, 0, 0, &mut memo)
+    }
+
+    let candidate_segments = candidate.split('/').collect::<Vec<_>>();
+    let pattern_segments = pattern.split('/').collect::<Vec<_>>();
+    let mut memo = vec![vec![None; pattern_segments.len() + 1]; candidate_segments.len() + 1];
+
+    fn matches_segments(
+        candidate: &[&str],
+        pattern: &[&str],
         candidate_index: usize,
         pattern_index: usize,
         memo: &mut [Vec<Option<bool>>],
@@ -1100,21 +1799,13 @@ fn wildcard_pattern_matches(candidate: &str, pattern: &str) -> bool {
 
         let result = if pattern_index == pattern.len() {
             candidate_index == candidate.len()
-        } else if pattern[pattern_index] == '*' {
-            let mut offset = candidate_index + 1;
-            let mut matched = false;
-            while offset <= candidate.len() {
-                if matches(candidate, pattern, offset, pattern_index + 1, memo) {
-                    matched = true;
-                    break;
-                }
-                offset += 1;
-            }
-            matched
+        } else if pattern[pattern_index] == "**" {
+            (candidate_index..=candidate.len())
+                .any(|offset| matches_segments(candidate, pattern, offset, pattern_index + 1, memo))
         } else if candidate_index < candidate.len()
-            && candidate[candidate_index] == pattern[pattern_index]
+            && segment_pattern_matches(candidate[candidate_index], pattern[pattern_index])
         {
-            matches(
+            matches_segments(
                 candidate,
                 pattern,
                 candidate_index + 1,
@@ -1129,7 +1820,11 @@ fn wildcard_pattern_matches(candidate: &str, pattern: &str) -> bool {
         result
     }
 
-    matches(&candidate_chars, &pattern_chars, 0, 0, &mut memo)
+    matches_segments(&candidate_segments, &pattern_segments, 0, 0, &mut memo)
+}
+
+fn pattern_matches_candidate(candidate: &str, pattern: &str) -> bool {
+    wildcard_pattern_matches(candidate, pattern)
 }
 
 fn normalize_path_for_match(path: &Path) -> String {
@@ -1142,6 +1837,256 @@ fn has_url_like_prefix(target: &str) -> bool {
     };
 
     !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_alphabetic())
+}
+
+fn collect_pattern_matches(
+    base_dir: &Path,
+    pattern: &str,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<Vec<PathBuf>> {
+    if pattern.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if !pattern_contains_wildcard(pattern) {
+        return collect_static_pattern_matches(
+            base_dir,
+            pattern,
+            candidate_extensions,
+            default_excluded_dirs,
+        );
+    }
+
+    let search_root = resolve_pattern_search_root(base_dir, pattern);
+    if !path_exists(&search_root) {
+        return Ok(Vec::new());
+    }
+    if is_within_default_excluded_dir(&search_root, default_excluded_dirs) {
+        return Ok(Vec::new());
+    }
+
+    let mut matches = BTreeSet::new();
+    collect_pattern_matches_recursive(
+        &search_root,
+        &resolve_path(base_dir, pattern),
+        candidate_extensions,
+        default_excluded_dirs,
+        &mut matches,
+    )?;
+    Ok(matches.into_iter().collect())
+}
+
+fn collect_default_pattern_matches(
+    base_dir: &Path,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<BTreeSet<PathBuf>> {
+    let mut matches = BTreeSet::new();
+    collect_supported_files_recursively(
+        base_dir,
+        &mut matches,
+        candidate_extensions,
+        default_excluded_dirs,
+    )?;
+    Ok(matches)
+}
+
+fn collect_static_pattern_matches(
+    base_dir: &Path,
+    pattern: &str,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<Vec<PathBuf>> {
+    let resolved = resolve_path(base_dir, pattern);
+    if path_exists(&resolved) {
+        let metadata = fs::metadata(&resolved)?;
+        if metadata.is_dir() {
+            if is_within_default_excluded_dir(&resolved, default_excluded_dirs) {
+                return Ok(Vec::new());
+            }
+            let mut matches = BTreeSet::new();
+            collect_supported_files_recursively(
+                &resolved,
+                &mut matches,
+                candidate_extensions,
+                default_excluded_dirs,
+            )?;
+            return Ok(matches.into_iter().collect());
+        }
+
+        if metadata.is_file()
+            && !is_within_default_excluded_dir(&resolved, default_excluded_dirs)
+            && is_ts_pattern_candidate_file(&resolved, candidate_extensions)
+        {
+            return Ok(vec![resolved]);
+        }
+        return Ok(Vec::new());
+    }
+
+    if has_explicit_extension(pattern) {
+        return Ok(Vec::new());
+    }
+
+    let resolved_string = resolved.to_string_lossy();
+    let mut matches = Vec::new();
+    for extension in candidate_extensions {
+        let candidate = PathBuf::from(format!("{resolved_string}{extension}"));
+        if path_exists(&candidate)
+            && !is_within_default_excluded_dir(&candidate, default_excluded_dirs)
+            && fs::metadata(&candidate)?.is_file()
+        {
+            matches.push(candidate);
+        }
+    }
+
+    Ok(matches)
+}
+
+fn collect_supported_files_recursively(
+    root: &Path,
+    matches: &mut BTreeSet<PathBuf>,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => return Ok(()),
+        Err(error) => return Err(error),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let entry_path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            if should_skip_default_pattern_dir(&entry_path, default_excluded_dirs) {
+                continue;
+            }
+            collect_supported_files_recursively(
+                &entry_path,
+                matches,
+                candidate_extensions,
+                default_excluded_dirs,
+            )?;
+            continue;
+        }
+
+        if file_type.is_file() && is_ts_pattern_candidate_file(&entry_path, candidate_extensions) {
+            matches.insert(normalize_path(&entry_path));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_pattern_matches_recursive(
+    root: &Path,
+    absolute_pattern: &Path,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+    matches: &mut BTreeSet<PathBuf>,
+) -> io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => return Ok(()),
+        Err(error) => return Err(error),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let entry_path = entry.path();
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            if should_skip_default_pattern_dir(&entry_path, default_excluded_dirs) {
+                continue;
+            }
+            collect_pattern_matches_recursive(
+                &entry_path,
+                absolute_pattern,
+                candidate_extensions,
+                default_excluded_dirs,
+                matches,
+            )?;
+            continue;
+        }
+
+        if file_type.is_file()
+            && is_ts_pattern_candidate_file(&entry_path, candidate_extensions)
+            && pattern_matches_candidate(
+                &normalize_path_for_match(&entry_path),
+                &normalize_path_for_match(absolute_pattern),
+            )
+        {
+            matches.insert(normalize_path(&entry_path));
+        }
+    }
+
+    Ok(())
+}
+
+fn pattern_matches_file(
+    base_dir: &Path,
+    pattern: &str,
+    candidate: &Path,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> bool {
+    if pattern.trim().is_empty() {
+        return false;
+    }
+
+    let candidate = normalize_path(candidate);
+    if !pattern_contains_wildcard(pattern) {
+        let resolved = resolve_path(base_dir, pattern);
+        if path_exists(&resolved) {
+            return fs::metadata(&resolved)
+                .map(|metadata| {
+                    if metadata.is_dir() {
+                        !should_skip_default_pattern_dir(&resolved, default_excluded_dirs)
+                            && candidate.starts_with(&resolved)
+                    } else {
+                        candidate == normalize_path(&resolved)
+                    }
+                })
+                .unwrap_or(false);
+        }
+
+        if has_explicit_extension(pattern) {
+            return false;
+        }
+
+        let resolved_string = resolved.to_string_lossy();
+        return candidate_extensions
+            .iter()
+            .any(|extension| candidate == PathBuf::from(format!("{resolved_string}{extension}")));
+    }
+
+    pattern_matches_candidate(
+        &normalize_path_for_match(&candidate),
+        &normalize_path_for_match(&resolve_path(base_dir, pattern)),
+    )
+}
+
+fn resolve_pattern_search_root(base_dir: &Path, pattern: &str) -> PathBuf {
+    let prefix = pattern
+        .find(['*', '?'])
+        .map(|index| &pattern[..index])
+        .unwrap_or(pattern);
+    let search_prefix = wildcard_search_prefix(prefix);
+    resolve_path(base_dir, search_prefix)
+}
+
+fn pattern_contains_wildcard(pattern: &str) -> bool {
+    pattern.contains('*') || pattern.contains('?')
+}
+
+fn is_ts_pattern_candidate_file(path: &Path, candidate_extensions: &[&str]) -> bool {
+    let normalized = normalize_path_for_match(path);
+    candidate_extensions
+        .iter()
+        .any(|extension| normalized.ends_with(extension))
 }
 
 fn resolve_path(base_dir: &Path, target: &str) -> PathBuf {

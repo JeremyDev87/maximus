@@ -21,7 +21,6 @@ If you want to extend one of those areas, start with [Checker Authoring](./archi
 
 | Idea | Area | Why it matters | Likely home |
 | --- | --- | --- | --- |
-| Empty `include` or `exclude` pattern detection | TypeScript | Catches configurations that look intentional but match nothing | `crates/maximus-checks/src/tsconfig.rs` |
 | Output path overlap detection | TypeScript | Prevents `outDir`, `declarationDir`, or build outputs from stepping on each other | `crates/maximus-checks/src/tsconfig.rs` |
 | Module system consistency | TypeScript and package metadata | Flags mismatches between `package.json`, `tsconfig`, and emitted files | `crates/maximus-checks/src/tsconfig.rs`, `crates/maximus-checks/src/package_entrypoints.rs` |
 | Path alias shadowing | TypeScript | Finds aliases that hide package imports or each other in surprising ways | `crates/maximus-checks/src/tsconfig.rs` |
