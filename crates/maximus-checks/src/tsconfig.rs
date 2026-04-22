@@ -67,6 +67,7 @@ enum CompositeResolution {
 struct EffectivePatternOptions {
     allow_js: bool,
     out_dir: Option<PathBuf>,
+    root_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -134,6 +135,13 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
         collect_deprecated_option_findings(&mut findings, &file.path, compiler_options);
         collect_project_reference_findings(&mut findings, &file.path, &file.dir, references)?;
         collect_include_exclude_pattern_findings(&mut findings, &file.path, &file.dir, &config)?;
+        collect_output_path_overlap_findings(
+            &mut findings,
+            &project.root_dir,
+            &file.path,
+            &file.dir,
+            &config,
+        )?;
 
         let Some(paths_config) = compiler_options.and_then(|options| options.get("paths")) else {
             continue;
@@ -792,6 +800,327 @@ fn collect_include_exclude_pattern_findings(
     Ok(())
 }
 
+fn collect_output_path_overlap_findings(
+    findings: &mut Vec<Finding>,
+    project_root: &Path,
+    file_path: &Path,
+    config_dir: &Path,
+    config: &Value,
+) -> io::Result<()> {
+    let base_dir = normalize_path(config_dir);
+    let effective_pattern_config = resolve_effective_pattern_config(file_path, config)?;
+    let Some(output_dir) = effective_pattern_config.options.out_dir.clone() else {
+        return Ok(());
+    };
+    let output_dir = normalize_path(&output_dir);
+    let candidate_extensions = ts_pattern_extensions(effective_pattern_config.options.allow_js);
+    let default_excluded_dirs = collect_default_excluded_dirs(&effective_pattern_config.options);
+    let effective_source_files = collect_effective_tsconfig_input_files(
+        &base_dir,
+        &effective_pattern_config,
+        candidate_extensions,
+        &default_excluded_dirs,
+    )?;
+    let raw_source_files = if output_dir == base_dir && effective_source_files.is_empty() {
+        collect_effective_tsconfig_input_files(
+            &base_dir,
+            &effective_pattern_config,
+            candidate_extensions,
+            &[],
+        )?
+    } else {
+        BTreeSet::new()
+    };
+    let source_roots = collect_output_source_roots(
+        &base_dir,
+        &effective_pattern_config,
+        candidate_extensions,
+        &effective_source_files,
+        &default_excluded_dirs,
+    )?;
+
+    if let Some(source_root) = source_roots
+        .iter()
+        .find(|source_root| output_dir == **source_root)
+    {
+        let output_display = display_project_relative_path(project_root, &output_dir);
+        let source_display = display_project_relative_path(project_root, source_root);
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-output-paths:{}:outdir-equals-source:{output_display}",
+                file_path.to_string_lossy()
+            ),
+            title: "Output directory overlaps the TypeScript source root".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "outDir \"{output_display}\" overlaps source root \"{source_display}\"."
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Move emit output outside the source root so build artifacts do not overwrite source files."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return Ok(());
+    }
+
+    if let Some(source_root) = source_roots
+        .iter()
+        .find(|source_root| output_dir.starts_with(*source_root))
+    {
+        let output_display = display_project_relative_path(project_root, &output_dir);
+        let source_display = display_project_relative_path(project_root, source_root);
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-output-paths:{}:outdir-nested-in-source:{output_display}",
+                file_path.to_string_lossy()
+            ),
+            title: "Output directory is nested inside the TypeScript source root".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "outDir \"{output_display}\" is nested inside source root \"{source_display}\"."
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Move emit output outside the source root so build artifacts do not overwrite source files."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return Ok(());
+    }
+
+    if let Some(overlapping_input) = effective_source_files
+        .iter()
+        .find(|candidate| candidate.starts_with(&output_dir))
+        .or_else(|| {
+            raw_source_files
+                .iter()
+                .find(|candidate| candidate.starts_with(&output_dir))
+        })
+    {
+        let output_display = display_project_relative_path(project_root, &output_dir);
+        let input_display = display_project_relative_path(project_root, overlapping_input);
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-output-paths:{}:outdir-contains-input:{output_display}",
+                file_path.to_string_lossy()
+            ),
+            title: "Output directory contains TypeScript input files".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "outDir \"{output_display}\" contains TypeScript input \"{input_display}\"."
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Move emit output outside any directory that currently contains TypeScript input files."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return Ok(());
+    }
+
+    if let Some(source_root) = source_roots
+        .iter()
+        .find(|source_root| source_root.starts_with(&output_dir))
+    {
+        let output_display = display_project_relative_path(project_root, &output_dir);
+        let source_display = display_project_relative_path(project_root, source_root);
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-output-paths:{}:outdir-contains-source:{output_display}",
+                file_path.to_string_lossy()
+            ),
+            title: "Output directory contains the TypeScript source root".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "outDir \"{output_display}\" contains source root \"{source_display}\"."
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Prefer an output directory that is completely separate from the TypeScript source root."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Warn),
+        }));
+    }
+
+    Ok(())
+}
+
+fn collect_effective_tsconfig_input_files(
+    base_dir: &Path,
+    effective_pattern_config: &EffectivePatternConfig,
+    candidate_extensions: &[&str],
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<BTreeSet<PathBuf>> {
+    let (explicit_files, _) = collect_explicit_tsconfig_files(
+        effective_pattern_config.files.as_ref(),
+        candidate_extensions,
+    )?;
+    let mut exclude_eligible_files = if effective_pattern_config.include.is_some()
+        || effective_pattern_config.files.is_some()
+    {
+        BTreeSet::new()
+    } else {
+        collect_default_pattern_matches(base_dir, candidate_extensions, default_excluded_dirs)?
+    };
+
+    if let Some(include_field) = effective_pattern_config.include.as_ref() {
+        for pattern in &include_field.values {
+            let matches = collect_pattern_matches(
+                &include_field.base_dir,
+                pattern,
+                candidate_extensions,
+                default_excluded_dirs,
+            )?;
+            exclude_eligible_files.extend(matches);
+        }
+    }
+
+    if let Some(exclude_field) = effective_pattern_config.exclude.as_ref() {
+        for pattern in &exclude_field.values {
+            let matches = exclude_eligible_files
+                .iter()
+                .filter(|candidate| {
+                    pattern_matches_file(
+                        &exclude_field.base_dir,
+                        pattern,
+                        candidate,
+                        candidate_extensions,
+                        default_excluded_dirs,
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            for matched in matches {
+                exclude_eligible_files.remove(&matched);
+            }
+        }
+    }
+
+    let mut included_files = explicit_files;
+    included_files.extend(exclude_eligible_files);
+    Ok(included_files)
+}
+
+fn collect_output_source_roots(
+    base_dir: &Path,
+    effective_pattern_config: &EffectivePatternConfig,
+    candidate_extensions: &[&str],
+    included_files: &BTreeSet<PathBuf>,
+    default_excluded_dirs: &[PathBuf],
+) -> io::Result<BTreeSet<PathBuf>> {
+    let mut source_roots = BTreeSet::new();
+
+    if let Some(root_dir) = effective_pattern_config.options.root_dir.as_ref() {
+        source_roots.insert(normalize_path(root_dir));
+    }
+
+    if let Some(include_field) = effective_pattern_config.include.as_ref() {
+        for pattern in &include_field.values {
+            let matches = collect_pattern_matches(
+                &include_field.base_dir,
+                pattern,
+                candidate_extensions,
+                default_excluded_dirs,
+            )?;
+            if matches.is_empty() {
+                continue;
+            }
+
+            if let Some(source_root) =
+                resolve_pattern_source_root(&include_field.base_dir, pattern)
+            {
+                source_roots.insert(source_root);
+            }
+        }
+    }
+
+    for file in included_files {
+        if let Some(parent) = file.parent() {
+            let parent = normalize_path(parent);
+            if parent != *base_dir {
+                source_roots.insert(parent);
+            }
+        }
+    }
+
+    Ok(prune_nested_paths(source_roots))
+}
+
+fn resolve_pattern_source_root(base_dir: &Path, pattern: &str) -> Option<PathBuf> {
+    if pattern.trim().is_empty() {
+        return None;
+    }
+
+    if pattern_contains_wildcard(pattern) {
+        let prefix = pattern
+            .find(['*', '?'])
+            .map(|index| &pattern[..index])
+            .unwrap_or(pattern);
+        let search_prefix = wildcard_search_prefix(prefix);
+        if matches!(search_prefix, "." | "") {
+            return None;
+        }
+        return Some(resolve_path_with_backslash_support(base_dir, search_prefix));
+    }
+
+    let resolved = resolve_path_with_backslash_support(base_dir, pattern);
+    if path_exists(&resolved) {
+        match fs::metadata(&resolved) {
+            Ok(metadata) if metadata.is_dir() => return Some(normalize_path(&resolved)),
+            Ok(_) => return resolved.parent().map(normalize_path),
+            Err(_) => return None,
+        }
+    }
+
+    if has_explicit_extension(pattern) {
+        return resolved.parent().map(normalize_path);
+    }
+
+    Some(normalize_path(&resolved))
+}
+
+fn prune_nested_paths(paths: BTreeSet<PathBuf>) -> BTreeSet<PathBuf> {
+    let mut pruned = BTreeSet::new();
+
+    for path in paths {
+        if pruned
+            .iter()
+            .any(|existing: &PathBuf| path.starts_with(existing))
+        {
+            continue;
+        }
+        pruned.retain(|existing: &PathBuf| !existing.starts_with(&path));
+        pruned.insert(path);
+    }
+
+    pruned
+}
+
+fn display_project_relative_path(project_root: &Path, path: &Path) -> String {
+    let project_root = normalize_path(project_root);
+    let path = normalize_path(path);
+
+    match path.strip_prefix(&project_root) {
+        Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+        Ok(relative) => normalize_path_for_match(relative),
+        Err(_) => normalize_path_for_match(&path),
+    }
+}
+
 fn collect_explicit_tsconfig_files(
     files_field: Option<&EffectivePatternField>,
     candidate_extensions: &[&str],
@@ -1242,8 +1571,15 @@ fn resolve_effective_pattern_config_inner(
             effective_config.options.allow_js = allow_js;
         }
 
+        if let Some(root_dir) = compiler_options.get("rootDir").and_then(Value::as_str) {
+            effective_config.options.root_dir = Some(resolve_path_with_backslash_support(
+                config_path.parent().unwrap_or_else(|| Path::new(".")),
+                root_dir,
+            ));
+        }
+
         if let Some(out_dir) = compiler_options.get("outDir").and_then(Value::as_str) {
-            effective_config.options.out_dir = Some(resolve_path(
+            effective_config.options.out_dir = Some(resolve_path_with_backslash_support(
                 config_path.parent().unwrap_or_else(|| Path::new(".")),
                 out_dir,
             ));
@@ -2091,6 +2427,10 @@ fn is_ts_pattern_candidate_file(path: &Path, candidate_extensions: &[&str]) -> b
 
 fn resolve_path(base_dir: &Path, target: &str) -> PathBuf {
     normalize_path(&base_dir.join(target))
+}
+
+fn resolve_path_with_backslash_support(base_dir: &Path, target: &str) -> PathBuf {
+    resolve_path(base_dir, &target.replace('\\', "/"))
 }
 
 fn normalize_path(path: &Path) -> PathBuf {

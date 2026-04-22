@@ -991,6 +991,290 @@ fn tsconfig_check_skips_explicitly_empty_inputs_and_implicit_default_excludes() 
 }
 
 #[test]
+fn tsconfig_check_reports_output_path_overlap_contracts() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("outdir-src/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": "./src",
+            "outDir": "./src"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-src/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("outdir-src-generated/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": "./src",
+            "outDir": "./src/generated"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-src-generated/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("outdir-dist/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": "./src",
+            "outDir": "./dist"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-dist/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("outdir-contains-source/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": "./src/generated",
+            "outDir": "./src"
+          },
+          "files": []
+        }
+        "#,
+    );
+
+    write(
+        fixture.path().join("rootdir-dot/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": ".",
+            "outDir": "./src"
+          },
+          "files": ["index.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("rootdir-dot/index.ts"),
+        "export const root = true;\n",
+    );
+
+    write(
+        fixture.path().join("files-with-unmatched-include/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "outDir": "./src/generated"
+          },
+          "files": ["index.ts"],
+          "include": ["src/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("files-with-unmatched-include/index.ts"),
+        "export const root = true;\n",
+    );
+
+    write(
+        fixture.path().join("outdir-dot/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "outDir": "."
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-dot/src/index.ts"),
+        "export const source = true;\n",
+    );
+
+    write(
+        fixture.path().join("mixed-inputs/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "outDir": "./src"
+          },
+          "files": ["src/index.ts", "config.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("mixed-inputs/src/index.ts"),
+        "export const emitted = true;\n",
+    );
+    write(
+        fixture.path().join("mixed-inputs/config.ts"),
+        "export const config = true;\n",
+    );
+
+    write(
+        fixture.path().join("windows-style/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "rootDir": ".\\src",
+            "outDir": ".\\src\\generated"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("windows-style/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-equals-source:outdir-src/src",
+            fixture
+                .path()
+                .join("outdir-src/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory overlaps the TypeScript source root",
+        "outDir \"outdir-src/src\" overlaps source root \"outdir-src/src\".",
+        "Move emit output outside the source root so build artifacts do not overwrite source files.",
+        Some(fixture.path().join("outdir-src/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-nested-in-source:outdir-src-generated/src/generated",
+            fixture
+                .path()
+                .join("outdir-src-generated/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory is nested inside the TypeScript source root",
+        "outDir \"outdir-src-generated/src/generated\" is nested inside source root \"outdir-src-generated/src\".",
+        "Move emit output outside the source root so build artifacts do not overwrite source files.",
+        Some(fixture.path().join("outdir-src-generated/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-contains-source:outdir-contains-source/src",
+            fixture
+                .path()
+                .join("outdir-contains-source/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Output directory contains the TypeScript source root",
+        "outDir \"outdir-contains-source/src\" contains source root \"outdir-contains-source/src/generated\".",
+        "Prefer an output directory that is completely separate from the TypeScript source root.",
+        Some(fixture.path().join("outdir-contains-source/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-nested-in-source:rootdir-dot/src",
+            fixture
+                .path()
+                .join("rootdir-dot/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory is nested inside the TypeScript source root",
+        "outDir \"rootdir-dot/src\" is nested inside source root \"rootdir-dot\".",
+        "Move emit output outside the source root so build artifacts do not overwrite source files.",
+        Some(fixture.path().join("rootdir-dot/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-contains-input:outdir-dot",
+            fixture
+                .path()
+                .join("outdir-dot/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory contains TypeScript input files",
+        "outDir \"outdir-dot\" contains TypeScript input \"outdir-dot/src/index.ts\".",
+        "Move emit output outside any directory that currently contains TypeScript input files.",
+        Some(fixture.path().join("outdir-dot/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-equals-source:mixed-inputs/src",
+            fixture
+                .path()
+                .join("mixed-inputs/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory overlaps the TypeScript source root",
+        "outDir \"mixed-inputs/src\" overlaps source root \"mixed-inputs/src\".",
+        "Move emit output outside the source root so build artifacts do not overwrite source files.",
+        Some(fixture.path().join("mixed-inputs/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-output-paths:{}:outdir-nested-in-source:windows-style/src/generated",
+            fixture
+                .path()
+                .join("windows-style/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Output directory is nested inside the TypeScript source root",
+        "outDir \"windows-style/src/generated\" is nested inside source root \"windows-style/src\".",
+        "Move emit output outside the source root so build artifacts do not overwrite source files.",
+        Some(fixture.path().join("windows-style/tsconfig.json")),
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-output-paths:{}:",
+                fixture
+                    .path()
+                    .join("outdir-dist/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "safe dist output directories should not report overlap findings"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-output-paths:{}:",
+                fixture
+                    .path()
+                    .join("files-with-unmatched-include/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "unmatched include patterns should not create output overlap findings when only files inputs are active"
+    );
+}
+
+#[test]
 fn tsconfig_check_inherits_pattern_fields_and_reports_invalid_pattern_entries() {
     let fixture = TempDir::new().expect("temp dir should exist");
 
