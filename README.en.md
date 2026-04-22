@@ -24,9 +24,9 @@ Maximus now uses the Rust runtime as its canonical implementation.
 - The published npm wrapper and GitHub Action also target that Rust runtime path by default.
 - The published npm entrypoint is now `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor`, and `npx @jeremyfellaz/maximus fix`, while the installed binary name stays `maximus`.
 - `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a limited compatibility fallback; it is no longer the primary implementation surface for new runtime or distribution behavior. Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
-- `docs/plan/001` through `012` are Rust v1 spec inputs, and `docs/plan/013+` plus the older JS backlog are no longer the default implementation lane.
+- Historical rewrite planning notes may still exist in maintainer workflows, but public contributor guidance should follow tracked repo docs such as `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md`, and `docs/architecture/checker-authoring.md`.
 
-See the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) for the transition boundary, phase map, and contributor rules.
+See the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) for the transition boundary and contributor rules.
 
 ## What It Does
 
