@@ -2,14 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use maximus_core::{discover_project, Severity};
-use tempfile::TempDir;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use tempfile::TempDir;
 
-#[path = "../src/tsconfig.rs"]
-mod tsconfig;
 #[path = "../src/check_outcome.rs"]
 mod check_outcome;
+#[path = "../src/tsconfig.rs"]
+mod tsconfig;
 
 use tsconfig::run_tsconfig_check;
 
@@ -468,6 +468,792 @@ fn tsconfig_check_treats_paths_targets_as_fallback_candidates() {
 }
 
 #[test]
+fn tsconfig_check_reports_empty_include_and_useless_exclude_patterns() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("empty-include/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("empty-include/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("empty-exclude/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/**/*.ts"],
+          "exclude": ["generated/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("empty-exclude/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("useful-patterns/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/**/*.ts"],
+          "exclude": ["src/generated/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("useful-patterns/src/index.ts"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("useful-patterns/src/generated/skip.ts"),
+        "export const skip = true;\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:src/missing/**/*.ts",
+            fixture
+                .path()
+                .join("empty-include/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"src/missing/**/*.ts\" matched 0 files under base dir {}.",
+            fixture.path().join("empty-include").to_string_lossy()
+        ),
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+        Some(fixture.path().join("empty-include/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:exclude:generated/**/*.ts",
+            fixture
+                .path()
+                .join("empty-exclude/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"generated/**/*.ts\" removed 0 files from 1 included file(s) under base dir {}.",
+            fixture.path().join("empty-exclude").to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(fixture.path().join("empty-exclude/tsconfig.json")),
+    );
+
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("useful-patterns/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "useful include/exclude patterns should not report tsconfig-pattern findings"
+    );
+}
+
+#[test]
+fn tsconfig_check_uses_default_include_and_allow_js_rules_for_pattern_findings() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("exclude-only/tsconfig.json"),
+        r#"
+        {
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("exclude-only/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+
+    write(
+        fixture.path().join("js-without-allowjs/tsconfig.json"),
+        r#"
+        {
+          "include": ["src"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("js-without-allowjs/src/index.js"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("js-with-allowjs/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "allowJs": true
+          },
+          "include": ["src"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("js-with-allowjs/src/index.js"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("question-mark-include/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/file?.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("question-mark-include/src/file1.ts"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("star-zero-include/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/file*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("star-zero-include/src/file.ts"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("inherited-allowjs/tsconfig.json"),
+        r#"
+        {
+          "extends": "./tsconfig.base.json",
+          "include": ["src"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("inherited-allowjs/tsconfig.base.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "allowJs": true
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("inherited-allowjs/src/index.js"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("inherited-outdir/tsconfig.json"),
+        r#"
+        {
+          "extends": "./tsconfig.base.json",
+          "exclude": ["dist/**/*.d.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("inherited-outdir/tsconfig.base.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "outDir": "./dist"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("inherited-outdir/src/index.d.ts"),
+        "export declare const source: true;\n",
+    );
+    write(
+        fixture.path().join("inherited-outdir/dist/index.d.ts"),
+        "export declare const built: true;\n",
+    );
+    write(
+        fixture.path().join("outdir-include/tsconfig.json"),
+        r#"
+        {
+          "extends": "./tsconfig.base.json",
+          "include": ["dist"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-include/tsconfig.base.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "outDir": "./dist"
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("outdir-include/dist/index.d.ts"),
+        "export declare const built: true;\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:exclude:missing/**/*.ts",
+            fixture
+                .path()
+                .join("exclude-only/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"missing/**/*.ts\" removed 0 files from 1 included file(s) under base dir {}.",
+            fixture.path().join("exclude-only").to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(fixture.path().join("exclude-only/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:src",
+            fixture
+                .path()
+                .join("js-without-allowjs/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"src\" matched 0 files under base dir {}.",
+            fixture.path().join("js-without-allowjs").to_string_lossy()
+        ),
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+        Some(fixture.path().join("js-without-allowjs/tsconfig.json")),
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("js-with-allowjs/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "allowJs-enabled include patterns should accept JavaScript inputs"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("question-mark-include/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "question-mark wildcards should match single-character file names"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("star-zero-include/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "star wildcards should still match zero-width suffixes"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("inherited-allowjs/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "allowJs inherited through extends should allow JavaScript inputs"
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:exclude:dist/**/*.d.ts",
+            fixture
+                .path()
+                .join("inherited-outdir/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"dist/**/*.d.ts\" removed 0 files from 1 included file(s) under base dir {}.",
+            fixture.path().join("inherited-outdir").to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(fixture.path().join("inherited-outdir/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:dist",
+            fixture
+                .path()
+                .join("outdir-include/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"dist\" matched 0 files under base dir {}.",
+            fixture.path().join("outdir-include").to_string_lossy()
+        ),
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+        Some(fixture.path().join("outdir-include/tsconfig.json")),
+    );
+}
+
+#[test]
+fn tsconfig_check_skips_explicitly_empty_inputs_and_implicit_default_excludes() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("include-empty/tsconfig.json"),
+        r#"
+        {
+          "include": [],
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("include-empty/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+
+    write(
+        fixture.path().join("files-empty/tsconfig.json"),
+        r#"
+        {
+          "files": [],
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("files-empty/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+
+    write(
+        fixture.path().join("default-excludes/tsconfig.json"),
+        r#"
+        {
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture
+            .path()
+            .join("default-excludes/node_modules/pkg/index.d.ts"),
+        "export declare const ignored: true;\n",
+    );
+    write(
+        fixture.path().join("files-with-exclude/tsconfig.json"),
+        r#"
+        {
+          "files": ["src/index.d.ts"],
+          "exclude": ["src/**/*.d.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("files-with-exclude/src/index.d.ts"),
+        "export declare const explicit: true;\n",
+    );
+    write(
+        fixture.path().join("duplicate-excludes/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/**/*.d.ts"],
+          "exclude": ["src/generated/**/*.d.ts", "src/generated/**/*.d.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture
+            .path()
+            .join("duplicate-excludes/src/generated/index.d.ts"),
+        "export declare const duplicated: true;\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("include-empty/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "explicitly empty include arrays should not fall back to default include scanning"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("files-empty/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "files arrays should disable default include scanning even when they are empty"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("default-excludes/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "implicit default excludes like node_modules should not count as included inputs"
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:exclude:src/**/*.d.ts",
+            fixture
+                .path()
+                .join("files-with-exclude/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"src/**/*.d.ts\" removed 0 files from 1 included file(s) under base dir {}.",
+            fixture.path().join("files-with-exclude").to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(fixture.path().join("files-with-exclude/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:exclude:src/generated/**/*.d.ts",
+            fixture
+                .path()
+                .join("duplicate-excludes/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"src/generated/**/*.d.ts\" removed 0 files from 0 included file(s) under base dir {}.",
+            fixture.path().join("duplicate-excludes").to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(fixture.path().join("duplicate-excludes/tsconfig.json")),
+    );
+}
+
+#[test]
+fn tsconfig_check_inherits_pattern_fields_and_reports_invalid_pattern_entries() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("shared/tsconfig.base.json"),
+        r#"
+        {
+          "include": ["./src/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("app-inherited-include/tsconfig.json"),
+        r#"
+        {
+          "extends": "../shared/tsconfig.base.json"
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("app-inherited-include/src/index.ts"),
+        "export const ok = true;\n",
+    );
+    write(
+        fixture.path().join("app-missing-extends/tsconfig.json"),
+        r#"
+        {
+          "extends": "../shared-missing/tsconfig.base.json"
+        }
+        "#,
+    );
+
+    write(
+        fixture.path().join("shared-empty/tsconfig.base.json"),
+        r#"
+        {
+          "files": []
+        }
+        "#,
+    );
+    write(
+        fixture
+            .path()
+            .join("app-inherited-files-empty/tsconfig.json"),
+        r#"
+        {
+          "extends": "../shared-empty/tsconfig.base.json",
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture
+            .path()
+            .join("app-inherited-files-empty/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+
+    write(
+        fixture.path().join("invalid-pattern-entry/tsconfig.json"),
+        r#"
+        {
+          "include": [42]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("invalid-files-entry/tsconfig.json"),
+        r#"
+        {
+          "files": ["src/*.ts"],
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("invalid-files-entry/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+    write(
+        fixture.path().join("invalid-files-directory/tsconfig.json"),
+        r#"
+        {
+          "files": ["src"],
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("invalid-files-directory/src/index.d.ts"),
+        "export declare const ok: true;\n",
+    );
+    write(
+        fixture.path().join("invalid-files-missing/tsconfig.json"),
+        r#"
+        {
+          "files": ["src/missing.ts"],
+          "exclude": ["missing/**/*.ts"]
+        }
+        "#,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:./src/**/*.ts",
+            fixture
+                .path()
+                .join("app-inherited-include/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"./src/**/*.ts\" matched 0 files under base dir {}.",
+            fixture.path().join("shared").to_string_lossy()
+        ),
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+        Some(fixture.path().join("app-inherited-include/tsconfig.json")),
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            !finding.id.starts_with(&format!(
+                "tsconfig-patterns:{}:",
+                fixture
+                    .path()
+                    .join("app-inherited-files-empty/tsconfig.json")
+                    .to_string_lossy()
+            ))
+        }),
+        "inherited files arrays should disable default include scanning on child configs"
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns-shape:{}:extends:missing:{}",
+            fixture
+                .path()
+                .join("app-missing-extends/tsconfig.json")
+                .to_string_lossy(),
+            fixture
+                .path()
+                .join("app-missing-extends/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "Inherited tsconfig could not be found",
+        &format!(
+            "{} extends ../shared-missing/tsconfig.base.json, but that config file could not be resolved.",
+            fixture
+                .path()
+                .join("app-missing-extends/tsconfig.json")
+                .to_string_lossy()
+        ),
+        "Fix missing extends targets before relying on inherited tsconfig pattern settings.",
+        Some(fixture.path().join("app-missing-extends/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns-shape:{}:include:entry-0:{}",
+            fixture
+                .path()
+                .join("invalid-pattern-entry/tsconfig.json")
+                .to_string_lossy(),
+            fixture
+                .path()
+                .join("invalid-pattern-entry/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "\"include\" contains a non-string pattern",
+        &format!(
+            "{} declares include[0], but TypeScript expects string patterns.",
+            fixture
+                .path()
+                .join("invalid-pattern-entry/tsconfig.json")
+                .to_string_lossy()
+        ),
+        "Rewrite include as an array of string globs before relying on TypeScript input discovery.",
+        Some(fixture.path().join("invalid-pattern-entry/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns-shape:{}:files:entry-0-wildcard:{}",
+            fixture
+                .path()
+                .join("invalid-files-entry/tsconfig.json")
+                .to_string_lossy(),
+            fixture
+                .path()
+                .join("invalid-files-entry/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "\"files\" entries must point to explicit files",
+        &format!(
+            "{} declares files[0] as src/*.ts, but TypeScript files entries cannot use glob wildcards.",
+            fixture
+                .path()
+                .join("invalid-files-entry/tsconfig.json")
+                .to_string_lossy()
+        ),
+        "Rewrite files as an array of string paths before relying on explicit TypeScript inputs.",
+        Some(fixture.path().join("invalid-files-entry/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns-shape:{}:files:entry-0-directory:{}",
+            fixture
+                .path()
+                .join("invalid-files-directory/tsconfig.json")
+                .to_string_lossy(),
+            fixture
+                .path()
+                .join("invalid-files-directory/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "\"files\" entries must point to files",
+        &format!(
+            "{} declares files[0] as src, but that path resolves to a directory.",
+            fixture
+                .path()
+                .join("invalid-files-directory/tsconfig.json")
+                .to_string_lossy()
+        ),
+        "Rewrite files as an array of string paths before relying on explicit TypeScript inputs.",
+        Some(fixture.path().join("invalid-files-directory/tsconfig.json")),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns-shape:{}:files:entry-0-missing:{}",
+            fixture
+                .path()
+                .join("invalid-files-missing/tsconfig.json")
+                .to_string_lossy(),
+            fixture
+                .path()
+                .join("invalid-files-missing/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Error,
+        "\"files\" entries must point to existing files",
+        &format!(
+            "{} declares files[0] as src/missing.ts, but that path does not resolve to an existing file.",
+            fixture
+                .path()
+                .join("invalid-files-missing/tsconfig.json")
+                .to_string_lossy()
+        ),
+        "Rewrite files as an array of string paths before relying on explicit TypeScript inputs.",
+        Some(fixture.path().join("invalid-files-missing/tsconfig.json")),
+    );
+}
+
+#[test]
 fn tsconfig_check_reports_project_reference_missing_and_composite_contracts() {
     let fixture = TempDir::new().expect("temp dir should exist");
 
@@ -576,8 +1362,8 @@ fn tsconfig_check_reports_invalid_composite_value_types() {
         r#"{ "compilerOptions": { "composite": true } }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let finding = outcome
@@ -635,8 +1421,8 @@ fn tsconfig_check_does_not_resolve_extensionless_reference_paths_to_sibling_json
         r#"{ "compilerOptions": { "composite": true } }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert_has_finding(
@@ -676,8 +1462,8 @@ fn tsconfig_check_respects_inherited_composite_for_project_references() {
         r#"{ "extends": "../../tsconfig.base.json" }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert!(
@@ -717,8 +1503,8 @@ fn tsconfig_check_respects_package_based_extends_for_project_references() {
         r#"{ "extends": "@tsconfig/shared/tsconfig.json" }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert!(
@@ -756,8 +1542,8 @@ fn tsconfig_check_reports_inherited_parse_errors_before_composite_missing() {
         r#"{ "compilerOptions": { "composite": true, }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let finding = outcome
@@ -781,7 +1567,10 @@ fn tsconfig_check_reports_inherited_parse_errors_before_composite_missing() {
         finding.hint,
         "Fix invalid JSONC syntax in extended tsconfig files before relying on inherited composite settings."
     );
-    assert_eq!(finding.file, Some(fixture.path().join("root/tsconfig.json")));
+    assert_eq!(
+        finding.file,
+        Some(fixture.path().join("root/tsconfig.json"))
+    );
     assert!(
         outcome.findings.iter().all(|finding| {
             finding.id
@@ -813,8 +1602,8 @@ fn tsconfig_check_reports_missing_inherited_configs_before_composite_missing() {
         r#"{ "extends": "../../tsconfig.base.json" }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let finding = outcome
@@ -838,7 +1627,10 @@ fn tsconfig_check_reports_missing_inherited_configs_before_composite_missing() {
         finding.hint,
         "Make sure extends points at an existing tsconfig-style file before relying on inherited composite settings."
     );
-    assert_eq!(finding.file, Some(fixture.path().join("root/tsconfig.json")));
+    assert_eq!(
+        finding.file,
+        Some(fixture.path().join("root/tsconfig.json"))
+    );
     assert!(
         outcome.findings.iter().all(|finding| {
             finding.id
@@ -874,8 +1666,8 @@ fn tsconfig_check_reports_extends_cycles_before_composite_missing() {
         r#"{ "extends": "./packages/pkg-a/tsconfig.json" }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let finding = outcome
@@ -931,8 +1723,8 @@ fn tsconfig_check_reports_unparseable_project_reference_targets() {
         r#"{ "compilerOptions": { "paths": { "@bad/*": ["src/*",] } }"#,
     );
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let parse_finding = outcome
@@ -960,9 +1752,7 @@ fn tsconfig_check_reports_unparseable_project_reference_targets() {
         Some(fixture.path().join("root/tsconfig.json"))
     );
     assert!(
-        parse_finding
-            .detail
-            .contains("pkg-a/tsconfig.json"),
+        parse_finding.detail.contains("pkg-a/tsconfig.json"),
         "parse detail should preserve the referenced target path"
     );
 }
@@ -1057,7 +1847,10 @@ fn tsconfig_check_reports_project_reference_shape_errors() {
         &outcome.findings,
         &format!(
             "tsconfig-references-entry:{}:0",
-            fixture.path().join("entries/tsconfig.json").to_string_lossy()
+            fixture
+                .path()
+                .join("entries/tsconfig.json")
+                .to_string_lossy()
         ),
         Severity::Error,
         "Each project reference entry must be an object with a path",
@@ -1069,7 +1862,10 @@ fn tsconfig_check_reports_project_reference_shape_errors() {
         &outcome.findings,
         &format!(
             "tsconfig-references-entry:{}:1",
-            fixture.path().join("entries/tsconfig.json").to_string_lossy()
+            fixture
+                .path()
+                .join("entries/tsconfig.json")
+                .to_string_lossy()
         ),
         Severity::Error,
         "Each project reference entry must declare a string path",
@@ -1081,7 +1877,10 @@ fn tsconfig_check_reports_project_reference_shape_errors() {
         &outcome.findings,
         &format!(
             "tsconfig-references-entry:{}:2",
-            fixture.path().join("entries/tsconfig.json").to_string_lossy()
+            fixture
+                .path()
+                .join("entries/tsconfig.json")
+                .to_string_lossy()
         ),
         Severity::Error,
         "Each project reference entry must declare a string path",
@@ -1107,7 +1906,10 @@ fn tsconfig_check_reports_unreadable_project_reference_targets() {
         }
         "#,
     );
-    write(&target_path, r#"{ "compilerOptions": { "composite": true } }"#);
+    write(
+        &target_path,
+        r#"{ "compilerOptions": { "composite": true } }"#,
+    );
 
     let original_permissions = fs::metadata(&target_path)
         .expect("target metadata should exist")
@@ -1117,8 +1919,8 @@ fn tsconfig_check_reports_unreadable_project_reference_targets() {
     fs::set_permissions(&target_path, unreadable_permissions)
         .expect("target permissions should update");
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     let mut restore_permissions = original_permissions;
@@ -1226,8 +2028,8 @@ fn tsconfig_check_accepts_empty_json_reference_targets_with_explicit_file_names(
     );
     write(fixture.path().join("packages/pkg-a/build.json"), "{}");
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert!(
@@ -1258,8 +2060,8 @@ fn tsconfig_check_rejects_empty_generic_json_reference_targets() {
     );
     write(fixture.path().join("packages/pkg-a/schema.json"), "{}");
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert_has_finding(
@@ -1295,8 +2097,8 @@ fn tsconfig_check_accepts_empty_reference_targets_with_non_json_file_names() {
     );
     write(fixture.path().join("packages/pkg-a/build"), "{}");
 
-    let project = discover_project(fixture.path().join("root").as_path())
-        .expect("project should discover");
+    let project =
+        discover_project(fixture.path().join("root").as_path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
 
     assert!(
