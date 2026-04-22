@@ -128,6 +128,8 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 
 체커를 추가하거나 기존 checker의 연결 구조를 확인할 때는 [checker authoring 아키텍처 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/architecture/checker-authoring.md)도 함께 보시면 현재 Rust crate 경계를 빠르게 맞출 수 있습니다.
 
+현재 저장소 기준으로 어디서 시작하면 좋은지 빠르게 잡고 싶다면 [contributor roadmap](https://github.com/JeremyDev87/maximus/blob/master/docs/roadmap.md), [good first issues](https://github.com/JeremyDev87/maximus/blob/master/docs/good-first-issues.md), [checker ideas](https://github.com/JeremyDev87/maximus/blob/master/docs/checker-ideas.md)를 같이 보시면 좋습니다. 이 문서들은 이미 구현된 표면과 아직 backlog인 주제를 구분해서 안내합니다.
+
 릴리즈 절차, alpha/stable 승격 순서, tag rerun 규칙은 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)에 따로 정리되어 있습니다.
 
 ## 보안

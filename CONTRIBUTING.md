@@ -31,12 +31,18 @@ For small fixes, feel free to open a pull request directly.
 
 If you are adding or changing a checker, read [docs/architecture/checker-authoring.md](https://github.com/JeremyDev87/maximus/blob/master/docs/architecture/checker-authoring.md) first. It describes the current Rust crate layout, registry, and test locations that this repository uses today.
 
+If you are new to the repository, these contributor docs are the quickest way to orient yourself:
+
+- [docs/roadmap.md](https://github.com/JeremyDev87/maximus/blob/master/docs/roadmap.md) for the current contribution lanes and repository shape
+- [docs/good-first-issues.md](https://github.com/JeremyDev87/maximus/blob/master/docs/good-first-issues.md) for narrow starter tasks
+- [docs/checker-ideas.md](https://github.com/JeremyDev87/maximus/blob/master/docs/checker-ideas.md) for backlog-style checker candidates that are not implemented yet
+
 If you are working from the local planning docs, use the following rule set:
 
 - Treat `docs/plan/001` through `012` as the source of truth for Rust v1 objectives, target outcomes, public interface changes, tests and acceptance, and done criteria.
 - Do not reuse the JS file lists inside those plan docs as ownership guidance for new implementation work.
-- Do not start `docs/plan/013+` implementation work before the Rust cutover phases are complete.
-- Follow the transition families in order: `062` for direction, `063` for bootstrap/core, `064` for current MVP parity, `065` for backlog `001~012`, `066` for wrapper/cutover/distribution.
+- Treat `docs/plan/013+` as post-cutover backlog work. Re-check current `master`, merge history, and the active board before assuming a slice is still pending.
+- Keep new runtime behavior in the Rust crates, the launcher, and the docs instead of reviving the frozen JS reference tree as a default implementation lane.
 
 ## Development Setup
 
