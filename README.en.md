@@ -126,6 +126,8 @@ That fallback path exists for compatibility verification and reference preservat
 
 Contributions are welcome. If you want to add a new check, improve fix safety, or reduce false positives, start with [CONTRIBUTING.md](https://github.com/JeremyDev87/maximus/blob/master/CONTRIBUTING.md) and the [runtime transition document](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) first, because the canonical runtime and distribution surface are now Rust-first and `src/**/*.js` is kept as frozen reference code.
 
+If you want a quick map of where to start in the current repository, read the [contributor roadmap](https://github.com/JeremyDev87/maximus/blob/master/docs/roadmap.md), [good first issues](https://github.com/JeremyDev87/maximus/blob/master/docs/good-first-issues.md), and [checker ideas](https://github.com/JeremyDev87/maximus/blob/master/docs/checker-ideas.md). These docs separate the implemented surface from backlog-style ideas.
+
 For release preparation, promotion, or rerun policy, use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md).
 
 ## Security
