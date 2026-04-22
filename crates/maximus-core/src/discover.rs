@@ -78,7 +78,11 @@ pub fn discover_project_with_ignore_root(
         .filter_entry(|entry| should_visit(&ignore_root, entry, &ignored_patterns));
 
     for entry in walker {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if should_skip_walk_error(&error) => continue,
+            Err(error) => return Err(error.into()),
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -216,6 +220,16 @@ fn should_visit(ignore_root: &Path, entry: &DirEntry, ignored_patterns: &[Ignore
     }
 
     !is_ignored_path_from_root(ignore_root, entry.path(), ignored_patterns)
+}
+
+fn should_skip_walk_error(error: &walkdir::Error) -> bool {
+    error.depth() > 0
+        && error.io_error().is_some_and(|io_error| {
+            matches!(
+                io_error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+            )
+        })
 }
 
 fn normalize_ignore_pattern(pattern: &str) -> Option<IgnorePattern> {
