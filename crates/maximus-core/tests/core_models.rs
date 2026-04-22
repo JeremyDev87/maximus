@@ -265,6 +265,79 @@ fn discovery_skips_directly_ignored_target_directory() {
     assert!(snapshot.package_files.is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn discovery_skips_permission_denied_directories_instead_of_crashing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = TempDir::new().unwrap();
+    let visible_dir = fixture.path().join("visible");
+    let blocked_dir = fixture.path().join("blocked");
+
+    std::fs::create_dir_all(&visible_dir).unwrap();
+    std::fs::write(
+        visible_dir.join("package.json"),
+        r#"{"name":"visible-fixture"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(&blocked_dir).unwrap();
+    std::fs::write(
+        blocked_dir.join("package.json"),
+        r#"{"name":"blocked-fixture"}"#,
+    )
+    .unwrap();
+
+    let original_permissions = std::fs::metadata(&blocked_dir).unwrap().permissions();
+    let mut blocked_permissions = original_permissions.clone();
+    blocked_permissions.set_mode(0o000);
+    std::fs::set_permissions(&blocked_dir, blocked_permissions).unwrap();
+
+    let snapshot = discover_project(fixture.path()).unwrap();
+
+    std::fs::set_permissions(&blocked_dir, original_permissions).unwrap();
+
+    assert_eq!(
+        snapshot
+            .files
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["visible/package.json"]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_ignores_broken_symlink_entries() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = TempDir::new().unwrap();
+    let linked_dir = fixture.path().join("linked");
+
+    std::fs::write(
+        fixture.path().join("package.json"),
+        r#"{"name":"root-fixture"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(&linked_dir).unwrap();
+    symlink(
+        fixture.path().join("missing-package.json"),
+        linked_dir.join("package.json"),
+    )
+    .unwrap();
+
+    let snapshot = discover_project(fixture.path()).unwrap();
+
+    assert_eq!(
+        snapshot
+            .files
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["package.json"]
+    );
+}
+
 #[test]
 fn findings_are_defaulted_sorted_deduplicated_and_summarized() {
     let error = make_finding(FindingInput {
