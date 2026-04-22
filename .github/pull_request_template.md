@@ -17,7 +17,16 @@ Briefly explain what changed and why.
 - [ ] `npm test`
 - [ ] `node ./bin/maximus.js audit`
 - [ ] `node ./bin/maximus.js fix --dry-run`
+- [ ] If Rust CLI contract changed: `cargo test -p maximus-cli --test mvp_parity`
+- [ ] If text output or parity fixtures changed: `node --test test/reference-parity.test.js`
+- [ ] If wrapper, launcher, packed-install, or fallback behavior changed: `node --test test/wrapper-runtime.test.js test/packed-wrapper-fallback.test.js`
 - [ ] Manual validation performed
+
+## Contract Impact
+
+- CLI contract status: stable | changed intentionally
+- Rust-direct evidence:
+- Wrapper or fallback evidence, if applicable:
 
 ## Checklist
 

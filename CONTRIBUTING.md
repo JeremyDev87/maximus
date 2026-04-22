@@ -11,8 +11,7 @@ Maximus now treats Rust as the canonical runtime for the published CLI, the npm 
 - `bin/maximus.js` is a thin launcher for the published `@jeremyfellaz/maximus` wrapper and prefers repository Rust builds plus installed platform-specific Rust binaries.
 - `src/**/*.js` stays in the repository as frozen reference code for parity checks, golden output generation, and roadmap context. It also remains available as a compatibility fallback for legacy-compatible CLI invocations, but config auto-loading and Rust-only CLI flags must still run on the canonical Rust runtime.
 - New user-facing runtime or distribution behavior should land in the Rust crates, the thin launcher, and the docs. Do not treat `src/**/*.js` as the default implementation surface for new product behavior.
-- `docs/plan/001` through `012` should be read as Rust v1 feature specs, not as instructions to expand the JS codebase directly.
-- `docs/plan/013+` and the older JS backlog are not the default implementation lane while the rewrite family is still being closed out.
+- Historical rewrite planning notes may still exist in maintainer workflows, but tracked repository docs are the public source of truth for contributors. Do not treat older JS backlog notes as the default implementation lane.
 
 Read [docs/runtime-transition.md](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) before starting any roadmap-sized work.
 
@@ -39,9 +38,9 @@ If you are new to the repository, these contributor docs are the quickest way to
 
 If you are working from the local planning docs, use the following rule set:
 
-- Treat `docs/plan/001` through `012` as the source of truth for Rust v1 objectives, target outcomes, public interface changes, tests and acceptance, and done criteria.
-- Do not reuse the JS file lists inside those plan docs as ownership guidance for new implementation work.
-- Treat `docs/plan/013+` as post-cutover backlog work. Re-check current `master`, merge history, and the active board before assuming a slice is still pending.
+- Treat tracked contributor docs such as `docs/roadmap.md`, `docs/runtime-transition.md`, and `docs/architecture/checker-authoring.md` as the public source of truth first.
+- Re-check current `master`, merge history, and the active board before assuming a local planning slice is still pending.
+- Do not reuse stale JS-oriented file lists inside older planning notes as ownership guidance for new implementation work.
 - Keep new runtime behavior in the Rust crates, the launcher, and the docs instead of reviving the frozen JS reference tree as a default implementation lane.
 
 ## Development Setup
@@ -75,6 +74,16 @@ Current repository layout keeps the JS source tree for reference, but new runtim
 - If the change belongs to the rewrite roadmap, keep README, `README.en.md`, `CONTRIBUTING.md`, package metadata, and transition docs aligned.
 - Do not land canonical CLI behavior only in the frozen JS reference tree unless the change is explicitly about parity/reference maintenance.
 
+## Contract-Sensitive Changes
+
+Treat the user-facing CLI contract as fail-closed.
+
+- Text output, JSON shape, exit semantics, and wrapper invocation behavior are not soft conventions.
+- If a pull request changes any of those surfaces intentionally, update the matching regression evidence in the same pull request. The usual Rust-direct contract files are `test/reference-parity.test.js`, `test/golden-rust/*`, `crates/maximus-cli/tests/mvp_parity.rs`, and the affected CLI integration tests.
+- If the change touches launcher resolution, wrapper invocation, packed-install behavior, or frozen-JS fallback boundaries, also run and cite `test/wrapper-runtime.test.js` and, when the packed-install path matters, `test/packed-wrapper-fallback.test.js`.
+- Do not defer golden or parity updates to a follow-up cleanup pull request.
+- Reviewers should block contract-sensitive changes when the pull request does not include matching test evidence and doc alignment.
+
 ## Release-Related Changes
 
 If your change touches release wiring, packaging, release notes automation, or packed-install behavior, keep the maintainer runbook and release-drafter contract aligned with the code.
@@ -102,6 +111,7 @@ node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
 If your change affects a specific detector, add a regression test covering the edge case you fixed.
+If your change is contract-sensitive, also run the smallest matching direct gate instead of relying on the wrapper baseline alone. For Rust CLI behavior this usually means `cargo test -p maximus-cli --test mvp_parity`; for launcher or packed-install behavior, use `node --test test/wrapper-runtime.test.js` and `node --test test/packed-wrapper-fallback.test.js` as needed.
 
 ## Commit Style
 
@@ -121,6 +131,8 @@ Please include:
 - What changed
 - Why it changed
 - How you tested it
+- Whether the user-facing CLI contract stayed stable or changed intentionally
+- Which golden/parity checks back that claim when text, JSON, exit, or wrapper behavior moved
 - Any known limitations or follow-up work
 
 Small, well-tested pull requests are much easier to review and merge quickly.

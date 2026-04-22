@@ -87,6 +87,7 @@ Choose the path that matches your comfort level:
 
 - Keep one behavior change per pull request when possible.
 - Add or update regression tests for every checker change.
+- Treat user-facing text output, JSON shape, exit behavior, and wrapper invocation as fail-closed contracts. Intentional changes should land with matching golden/parity evidence and doc updates in the same pull request.
 - Keep README, CONTRIBUTING, and docs aligned when user-facing behavior changes.
 - Treat `src/**/*.js` as frozen reference code, not the default lane for new runtime behavior.
 - Prefer repository evidence over plan assumptions when the code and an older note disagree.

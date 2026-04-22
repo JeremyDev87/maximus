@@ -24,7 +24,7 @@ Maximus는 이제 Rust runtime을 canonical implementation으로 사용합니다
 - publish된 npm wrapper와 GitHub Action도 같은 Rust runtime 경로를 기준으로 동작합니다.
 - publish된 npm 진입점은 `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor`, `npx @jeremyfellaz/maximus fix`이며, 설치 후 실행되는 binary 이름은 계속 `maximus`입니다.
 - 저장소의 `src/**/*.js`는 parity 검증과 reference 비교를 위한 frozen reference로 남아 있습니다. native Rust runtime이 없을 때는 제한된 compatibility fallback으로만 남아 있으며, 새 runtime 기능이나 배포 동작의 기본 구현 표면으로 취급하지 않습니다. `maximus.config.json` 자동 로딩이나 `--only` 같은 Rust 전용 기능에는 canonical runtime인 Rust가 필요합니다.
-- `docs/plan/001`~`012`는 Rust v1 spec input이며, `docs/plan/013+`와 기존 JS backlog는 기본 구현 lane이 아닙니다.
+- historical rewrite planning notes는 maintainer workflow 안에 남아 있을 수 있지만, 공개 contributor guidance는 `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md`, `docs/architecture/checker-authoring.md` 같은 tracked repo 문서를 기준으로 따라야 합니다.
 
 전환 경계와 contributor 규칙은 [runtime transition 문서](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md)에서 확인할 수 있습니다.
 

@@ -20,12 +20,13 @@ Los proyectos modernos se apoyan en muchas capas de configuración como `tsconfi
 
 Maximus ahora usa el runtime de Rust como su implementación canónica.
 
-- El paquete npm raíz `maximus` es un thin launcher y la ejecución real se delega a binarios Rust precompilados específicos por plataforma.
-- La superficie de comandos para usuarios se mantiene igual: `npx maximus audit`, `npx maximus doctor`, `npx maximus fix`
+- El paquete npm raíz `@jeremyfellaz/maximus` es un thin launcher y la ejecución real se delega a binarios Rust precompilados específicos por plataforma.
+- El wrapper npm publicado y la GitHub Action también usan por defecto esa misma ruta de runtime en Rust.
+- El entrypoint npm publicado ahora es `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor` y `npx @jeremyfellaz/maximus fix`, mientras que el nombre del binario instalado sigue siendo `maximus`.
 - `src/**/*.js` sigue en el repositorio como código de referencia congelado para trabajos de paridad y comparación. También se incluye en el paquete npm como compatibility fallback cuando faltan los paquetes nativos opcionales, pero ya no se considera el runtime canónico.
-- `docs/plan/001` hasta `012` son spec inputs para Rust v1, y `docs/plan/013+` junto con el backlog JS anterior ya no son la ruta de implementación por defecto.
+- Las notas históricas de planificación del rewrite pueden seguir existiendo en flujos internos de mantenimiento, pero la guía pública para contributors debe seguir documentos versionados del repositorio como `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md` y `docs/architecture/checker-authoring.md`.
 
-Consulta el [documento de runtime transition](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) para ver el límite de la transición, las fases y las reglas para contribuir.
+Consulta el [documento de runtime transition](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) para ver el límite de la transición y las reglas para contribuir.
 
 ## Qué Hace
 
@@ -40,9 +41,9 @@ Consulta el [documento de runtime transition](https://github.com/JeremyDev87/max
 ## Comandos
 
 ```bash
-npx maximus audit
-npx maximus doctor
-npx maximus fix
+ npx @jeremyfellaz/maximus audit
+ npx @jeremyfellaz/maximus doctor
+ npx @jeremyfellaz/maximus fix
 ```
 
 ### `audit`

@@ -20,12 +20,13 @@ Maximus は、プロジェクトのあちこちに散らばった設定ファイ
 
 Maximus は現在、Rust runtime を canonical implementation として使用します。
 
-- ルートの `maximus` npm package は thin launcher であり、実際の実行はプラットフォーム別の prebuilt Rust binary に委譲されます。
-- ユーザー向けコマンドの表面は維持されます: `npx maximus audit`、`npx maximus doctor`、`npx maximus fix`
+- ルートの `@jeremyfellaz/maximus` npm package は thin launcher であり、実際の実行はプラットフォーム別の prebuilt Rust binary に委譲されます。
+- 公開済みの npm wrapper と GitHub Action も、既定では同じ Rust runtime 経路を使います。
+- 公開されている npm の入口は `npx @jeremyfellaz/maximus audit`、`npx @jeremyfellaz/maximus doctor`、`npx @jeremyfellaz/maximus fix` で、インストール後のバイナリ名は引き続き `maximus` のままです。
 - `src/**/*.js` は parity 作業や比較のための frozen reference code としてリポジトリに残ります。optional native runtime package が入らないインストール向けの compatibility fallback として npm package にも同梱されますが、canonical runtime としては扱われません。
-- `docs/plan/001` から `012` は Rust v1 の spec input であり、`docs/plan/013+` と以前の JS backlog は、もはや既定の実装レーンではありません。
+- 歴史的な rewrite planning notes は maintainer の workflow に残っている場合がありますが、公開されている contributor guidance は `CONTRIBUTING.md`、`docs/roadmap.md`、`docs/runtime-transition.md`、`docs/architecture/checker-authoring.md` のような tracked repo 文書を基準にしてください。
 
-移行境界、フェーズ構成、コントリビューター向けルールは [runtime transition ドキュメント](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) を参照してください。
+移行境界とコントリビューター向けルールは [runtime transition ドキュメント](https://github.com/JeremyDev87/maximus/blob/master/docs/runtime-transition.md) を参照してください。
 
 ## 主な機能
 
@@ -40,9 +41,9 @@ Maximus は現在、Rust runtime を canonical implementation として使用し
 ## コマンド
 
 ```bash
-npx maximus audit
-npx maximus doctor
-npx maximus fix
+ npx @jeremyfellaz/maximus audit
+ npx @jeremyfellaz/maximus doctor
+ npx @jeremyfellaz/maximus fix
 ```
 
 ### `audit`
