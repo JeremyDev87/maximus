@@ -112,6 +112,8 @@ mod tests {
         let json = render_audit_result(&result).expect("audit json should render");
         let value: Value = serde_json::from_str(&json).expect("audit json should parse");
 
+        assert_eq!(value["schemaVersion"], "1");
+        assert_eq!(value["generator"], "maximus");
         assert_eq!(value["rootDir"], "/tmp/project");
         assert_eq!(value["summary"]["blockingFindings"], 0);
         assert_eq!(value["structure"]["configFiles"], 1);
@@ -137,6 +139,10 @@ mod tests {
         assert!(value.get("initial").is_some());
         assert!(value.get("applied").is_some());
         assert!(value.get("final").is_some());
+        assert_eq!(value["initial"]["schemaVersion"], "1");
+        assert_eq!(value["initial"]["generator"], "maximus");
+        assert_eq!(value["final"]["schemaVersion"], "1");
+        assert_eq!(value["final"]["generator"], "maximus");
     }
 
     #[test]

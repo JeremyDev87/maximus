@@ -78,6 +78,8 @@ export function summarizeFindings(findings, fixes, structure) {
 
 export function serializeAuditResult(result) {
   return {
+    schemaVersion: "1",
+    generator: "maximus",
     rootDir: result.rootDir,
     summary: result.summary,
     structure: result.structure,

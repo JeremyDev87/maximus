@@ -635,6 +635,8 @@ fn audit_result_serialization_keeps_js_json_shape() {
     assert_eq!(serialized.fixes.len(), 1);
     assert_eq!(serialized.findings[0].category, "general");
     assert!(serialized.findings[0].fixable);
+    assert_eq!(json["schemaVersion"], "1");
+    assert_eq!(json["generator"], "maximus");
     assert_eq!(json["rootDir"], "/tmp/project");
     assert_eq!(json["summary"]["blockingFindings"], 0);
     assert_eq!(json["summary"]["warningFindings"], 1);
