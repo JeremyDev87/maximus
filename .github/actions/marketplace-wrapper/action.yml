@@ -1,0 +1,73 @@
+name: Maximus Marketplace Wrapper
+description: Run Maximus through the published npm wrapper contract from a Marketplace-friendly subpath action.
+
+branding:
+  icon: check-circle
+  color: blue
+
+inputs:
+  command:
+    description: Maximus command to run (`audit`, `doctor`, or `fix`)
+    required: false
+    default: audit
+  path:
+    description: Project path to inspect
+    required: false
+    default: .
+  registry-url:
+    description: Optional npm registry override for smoke or pre-release validation
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      with:
+        node-version: "24"
+
+    - name: Resolve repository root
+      id: repo-root
+      shell: bash
+      run: |
+        repo_root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        echo "repo_root=$repo_root" >> "$GITHUB_OUTPUT"
+
+    - name: Install Maximus wrapper from repository root
+      shell: bash
+      env:
+        MAXIMUS_REGISTRY_URL: ${{ inputs.registry-url }}
+        REPO_ROOT: ${{ steps.repo-root.outputs.repo_root }}
+      run: |
+        install_root="$RUNNER_TEMP/maximus-action"
+        rm -rf "$install_root"
+        mkdir -p "$install_root"
+
+        export npm_config_cache="$RUNNER_TEMP/.npm-cache"
+        export npm_config_audit=false
+        export npm_config_fund=false
+        export npm_config_update_notifier=false
+
+        if [[ -n "$MAXIMUS_REGISTRY_URL" ]]; then
+          export npm_config_registry="$MAXIMUS_REGISTRY_URL"
+        fi
+
+        npm install --no-package-lock --prefix "$install_root" "$REPO_ROOT"
+
+    - name: Assert native runtime is installed
+      shell: bash
+      env:
+        REPO_ROOT: ${{ steps.repo-root.outputs.repo_root }}
+      run: |
+        install_root="$RUNNER_TEMP/maximus-action"
+        node "$REPO_ROOT/scripts/assert-installed-native-runtime.mjs" "$install_root"
+
+    - name: Run Maximus
+      shell: bash
+      env:
+        MAXIMUS_COMMAND: ${{ inputs.command }}
+        MAXIMUS_TARGET_PATH: ${{ inputs.path }}
+      run: |
+        install_root="$RUNNER_TEMP/maximus-action"
+        node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js" "$MAXIMUS_COMMAND" "$MAXIMUS_TARGET_PATH"
