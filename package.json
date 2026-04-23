@@ -40,6 +40,8 @@
     "audit": "node ./bin/maximus.js audit",
     "doctor": "node ./bin/maximus.js doctor",
     "fix": "node ./bin/maximus.js fix",
+    "release:docs": "node ./scripts/update-release-docs.mjs",
+    "release:docs:check": "node ./scripts/update-release-docs.mjs --check",
     "test": "node --test"
   },
   "keywords": [
