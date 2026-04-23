@@ -13,6 +13,7 @@ const platformPackages = [
 
 const requiredFiles = {
   action: "action.yml",
+  marketplaceWrapperAction: ".github/actions/marketplace-wrapper/action.yml",
   packageManifest: "package.json",
   devWorkflow: ".github/workflows/dev.yml",
   actionSmokeWorkflow: ".github/workflows/action-smoke.yml",
@@ -22,6 +23,7 @@ const requiredFiles = {
   releaseDrafterConfig: ".github/release-drafter.yml",
   readmeKo: "README.md",
   readmeEn: "README.en.md",
+  marketplaceGuide: "docs/github-action-marketplace.md",
   contributing: "CONTRIBUTING.md",
   releaseRunbook: "docs/release-operator-runbook.md",
   releaseContextAssertion: "scripts/assert-release-workflow-context.mjs",
@@ -35,6 +37,7 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   const fileContents = await readRequiredFiles(repoRoot);
   const packageManifest = JSON.parse(fileContents.packageManifest);
   validateAction(fileContents.action);
+  validateMarketplaceWrapperAction(fileContents.marketplaceWrapperAction);
   validateDevWorkflow(fileContents.devWorkflow);
   validateActionSmokeWorkflow(fileContents.actionSmokeWorkflow);
   validateRustReleaseWorkflow(fileContents.rustReleaseWorkflow);
@@ -42,6 +45,7 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   validateReleaseDrafterWorkflow(fileContents.releaseDrafterWorkflow);
   validateReleaseDrafterConfig(fileContents.releaseDrafterConfig);
   validateReadmes(fileContents.readmeKo, fileContents.readmeEn);
+  validateMarketplaceGuide(fileContents.marketplaceGuide);
   validateContributing(fileContents.contributing);
   validateReleaseRunbook(fileContents.releaseRunbook);
   validateReleaseContextAssertion(fileContents.releaseContextAssertion);
@@ -91,9 +95,11 @@ function validateAction(actionText) {
 function validateDevWorkflow(devText) {
   const requiredPaths = [
     "action.yml",
+    ".github/actions/marketplace-wrapper/action.yml",
     ".github/workflows/action-smoke.yml",
     ".github/workflows/release.yml",
     ".github/workflows/rust-release-binaries.yml",
+    "docs/github-action-marketplace.md",
   ];
 
   for (const requiredPath of requiredPaths) {
@@ -108,6 +114,16 @@ function validateDevWorkflow(devText) {
   assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/npm-error-classifiers.test.js", "release wiring node test command");
 }
 
+function validateMarketplaceWrapperAction(actionText) {
+  assertContains(actionText, "name: Maximus Marketplace Wrapper", "marketplace wrapper metadata name");
+  assertContains(actionText, "registry-url", "marketplace wrapper registry input");
+  assertContains(actionText, "Resolve repository root", "marketplace wrapper repo root step");
+  assertContains(actionText, 'repo_root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"', "marketplace wrapper repo root resolution");
+  assertContains(actionText, 'npm install --no-package-lock --prefix "$install_root" "$REPO_ROOT"', "marketplace wrapper root install");
+  assertContains(actionText, 'node "$REPO_ROOT/scripts/assert-installed-native-runtime.mjs" "$install_root"', "marketplace wrapper runtime assertion");
+  assertContains(actionText, 'node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js"', "marketplace wrapper runtime invocation");
+}
+
 function validateActionSmokeWorkflow(actionSmokeText) {
   assertContains(actionSmokeText, "workflow_call:", "action smoke reusable trigger");
   assertContains(actionSmokeText, "workflow_dispatch:", "action smoke manual trigger");
@@ -119,6 +135,7 @@ function validateActionSmokeWorkflow(actionSmokeText) {
   assertContains(actionSmokeText, 'test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "${{ inputs.release_sha }}"', "action smoke tag to sha comparison");
   assertContains(actionSmokeText, 'git describe --tags --exact-match HEAD', "action smoke exact tag assertion");
   assertContains(actionSmokeText, "uses: ./", "action smoke local tag checkout usage");
+  assertContains(actionSmokeText, "uses: ./.github/actions/marketplace-wrapper", "action smoke marketplace wrapper usage");
   assertContains(actionSmokeText, "dynamic expressions in step-level `uses:`", "action smoke dynamic uses rationale");
   assertContains(actionSmokeText, "registry-url: ${{ inputs.registry_url }}", "action smoke registry passthrough");
   assert.ok(
@@ -203,6 +220,12 @@ function validateReadmes(readmeKoText, readmeEnText) {
   assertContains(readmeEnText, "for example `v0.1.0`", "English README release tag guidance");
   assertContains(readmeEnText, "release operator runbook", "English README runbook link");
   assertContains(readmeEnText, "draft notes", "English README draft notes wording");
+}
+
+function validateMarketplaceGuide(guideText) {
+  assertContains(guideText, "JeremyDev87/maximus/.github/actions/marketplace-wrapper@v1", "marketplace guide subpath usage");
+  assertContains(guideText, "`registry-url`", "marketplace guide registry input");
+  assertContains(guideText, "root `action.yml`", "marketplace guide root action source-of-truth note");
 }
 
 function validateContributing(contributingText) {

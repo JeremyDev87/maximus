@@ -85,3 +85,10 @@ jobs:
           command: ${{ inputs.command }}
           path: ${{ inputs.path }}
           registry-url: ${{ inputs.registry_url }}
+
+      - name: Run marketplace wrapper action from checked-out release tag
+        uses: ./.github/actions/marketplace-wrapper
+        with:
+          command: ${{ inputs.command }}
+          path: ${{ inputs.path }}
+          registry-url: ${{ inputs.registry_url }}
