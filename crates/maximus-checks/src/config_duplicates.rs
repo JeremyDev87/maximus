@@ -75,14 +75,14 @@ pub fn run_config_duplicate_check(project: &ProjectSnapshot) -> std::io::Result<
                 title: "Legacy and flat ESLint configs coexist".to_string(),
                 category: Some("duplicates".to_string()),
                 detail: Some(
-                    "ESLint may resolve different config systems depending on invocation and toolchain."
+                    "This directory contains both legacy .eslintrc.* files and flat eslint.config.* files, so ESLint can resolve different rule sets depending on the entry point."
                         .to_string(),
                 ),
                 file: eslint_files.first().map(|file| file.path.clone()),
                 fix_ids: Vec::new(),
                 fixable: false,
                 hint: Some(
-                    "Pick either flat config (eslint.config.*) or legacy .eslintrc.* in the same directory."
+                    "Migrate to eslint.config.* as the single source of truth, then remove the legacy .eslintrc.* files after the new config fully replaces them."
                         .to_string(),
                 ),
                 severity: Some(Severity::Error),

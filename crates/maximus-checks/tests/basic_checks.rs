@@ -61,9 +61,27 @@ fn config_duplicate_check_matches_js_duplicate_and_mixed_mode_contracts() {
         &format!("eslint-mixed-modes:{}", fixture.path().to_string_lossy()),
         Severity::Error,
         "Legacy and flat ESLint configs coexist",
-        "ESLint may resolve different config systems depending on invocation and toolchain.",
-        "Pick either flat config (eslint.config.*) or legacy .eslintrc.* in the same directory.",
+        "This directory contains both legacy .eslintrc.* files and flat eslint.config.* files, so ESLint can resolve different rule sets depending on the entry point.",
+        "Migrate to eslint.config.* as the single source of truth, then remove the legacy .eslintrc.* files after the new config fully replaces them.",
         Some(fixture.path().join(".eslintrc.json")),
+    );
+}
+
+#[test]
+fn eslint_mixed_mode_fixture_reports_migration_guidance() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/fixtures/eslint-migration-guidance");
+
+    let project = discover_project(&fixture).expect("project should discover");
+    let outcome = run_config_duplicate_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!("eslint-mixed-modes:{}", fixture.to_string_lossy()),
+        Severity::Error,
+        "Legacy and flat ESLint configs coexist",
+        "This directory contains both legacy .eslintrc.* files and flat eslint.config.* files, so ESLint can resolve different rule sets depending on the entry point.",
+        "Migrate to eslint.config.* as the single source of truth, then remove the legacy .eslintrc.* files after the new config fully replaces them.",
+        Some(fixture.join(".eslintrc.json")),
     );
 }
 
