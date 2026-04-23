@@ -1,0 +1,20 @@
+Maximus doctor
+Target: <TARGET>
+
+Diagnosis: blocking issues
+Project shape: single package, 1 package(s), 2 config file(s), 0 env folder(s)
+
+Prescription
+- No automatic fixes are currently available.
+- Review 1 manual issue(s) in priority order below.
+
+Top 3 priorities
+1. [error] Path alias target does not exist
+   file: tsconfig.json
+   next: Update or remove stale aliases before they break editor and build resolution.
+
+Findings
+- [error] Path alias target does not exist
+  file: tsconfig.json
+  detail: @missing/* points to ghost/*, but the resolved path was not found.
+  hint: Update or remove stale aliases before they break editor and build resolution.

@@ -108,6 +108,9 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
         lines.push("No config drift detected.".to_string());
     } else {
         lines.push(String::new());
+        lines.push("Top 3 priorities".to_string());
+        lines.extend(format_top_priorities(result));
+        lines.push(String::new());
         lines.push("Findings".to_string());
         lines.extend(format_findings(result));
     }
@@ -121,6 +124,38 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
     }
 
     lines.join("\n")
+}
+
+fn format_top_priorities(result: &AuditResult) -> Vec<String> {
+    result
+        .findings
+        .iter()
+        .take(3)
+        .enumerate()
+        .flat_map(|(index, finding)| {
+            let mut lines = vec![format!(
+                "{}. [{}] {}",
+                index + 1,
+                severity_label(&finding.severity),
+                finding.title
+            )];
+
+            if let Some(file) = &finding.file {
+                lines.push(format!(
+                    "   file: {}",
+                    format_relative_file(&result.root_dir, file)
+                ));
+            }
+
+            if !finding.hint.is_empty() {
+                lines.push(format!("   next: {}", finding.hint));
+            } else if !finding.detail.is_empty() {
+                lines.push(format!("   next: {}", finding.detail));
+            }
+
+            lines
+        })
+        .collect()
 }
 
 pub fn format_fix_result(
@@ -318,7 +353,7 @@ fn relative_path_like_js(root_dir: &Path, file_path: &Path) -> Option<String> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use maximus_core::{AppliedFix, AuditResult, AuditSummary, StructureReport};
+    use maximus_core::{AppliedFix, AuditResult, AuditSummary, Finding, Severity, StructureReport};
 
     use super::{
         format_audit_report, format_doctor_report, format_fix_result, format_help,
@@ -427,6 +462,101 @@ mod tests {
             format_relative_file(&root_dir, Path::new("/tmp/other/file.ts")),
             "../other/file.ts"
         );
+    }
+
+    #[test]
+    fn doctor_report_lists_only_first_three_priorities() {
+        let root_dir = PathBuf::from("/tmp/project");
+        let result = AuditResult {
+            root_dir: root_dir.clone(),
+            summary: AuditSummary {
+                status: "blocking issues".to_string(),
+                total_findings: 4,
+                blocking_findings: 1,
+                warning_findings: 1,
+                info_findings: 2,
+                fixable_findings: 1,
+                fixes_available: 1,
+                config_files: 2,
+                package_count: 1,
+                env_directories: 1,
+            },
+            structure: StructureReport {
+                is_monorepo: false,
+                package_count: 1,
+                env_directories: 1,
+                config_files: 2,
+                recommendations: Vec::new(),
+            },
+            findings: vec![
+                Finding {
+                    id: "err-1".to_string(),
+                    severity: Severity::Error,
+                    category: "tsconfig".to_string(),
+                    title: "First error".to_string(),
+                    detail: "first detail".to_string(),
+                    file: Some(root_dir.join("tsconfig.json")),
+                    hint: "fix the first issue".to_string(),
+                    fixable: false,
+                    fix_ids: Vec::new(),
+                },
+                Finding {
+                    id: "warn-1".to_string(),
+                    severity: Severity::Warn,
+                    category: "env".to_string(),
+                    title: "Second warning".to_string(),
+                    detail: "second detail".to_string(),
+                    file: Some(root_dir.join(".env")),
+                    hint: "run maximus fix".to_string(),
+                    fixable: true,
+                    fix_ids: vec!["env-create-example".to_string()],
+                },
+                Finding {
+                    id: "info-1".to_string(),
+                    severity: Severity::Info,
+                    category: "tsconfig".to_string(),
+                    title: "Third note".to_string(),
+                    detail: "third detail".to_string(),
+                    file: Some(root_dir.join("packages/app/tsconfig.json")),
+                    hint: String::new(),
+                    fixable: false,
+                    fix_ids: Vec::new(),
+                },
+                Finding {
+                    id: "info-2".to_string(),
+                    severity: Severity::Info,
+                    category: "general".to_string(),
+                    title: "Fourth note".to_string(),
+                    detail: "fourth detail".to_string(),
+                    file: None,
+                    hint: String::new(),
+                    fixable: false,
+                    fix_ids: Vec::new(),
+                },
+            ],
+            fixes: Vec::new(),
+        };
+
+        let report = format_doctor_report(&result);
+
+        assert!(report.contains(
+            [
+                "Top 3 priorities",
+                "1. [error] First error",
+                "   file: tsconfig.json",
+                "   next: fix the first issue",
+                "2. [warn] Second warning",
+                "   file: .env",
+                "   next: run maximus fix",
+                "3. [info] Third note",
+                "   file: packages/app/tsconfig.json",
+                "   next: third detail",
+            ]
+            .join("\n")
+            .as_str()
+        ));
+        assert!(report.contains("- [info] Fourth note"));
+        assert!(!report.contains("4. [info] Fourth note"));
     }
 
     #[cfg(windows)]
