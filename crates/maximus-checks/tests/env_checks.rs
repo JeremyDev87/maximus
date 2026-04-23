@@ -1,17 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[path = "../src/env.rs"]
-mod env;
 #[path = "../src/check_outcome.rs"]
 mod check_outcome;
+#[path = "../src/env.rs"]
+mod env;
 
 use env::{render_created_env_example, render_synced_env_example, run_env_check};
+use maximus_core::env_parser::{
+    reset_env_template_render_state, set_env_template_render_options, EnvTemplateRenderOptions,
+    EnvTemplateSortMode,
+};
 use maximus_core::{apply_fix, discover_project, FixOperation, FixPlan, Severity};
 use tempfile::TempDir;
 
 #[test]
-fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and_missing_concrete() {
+fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and_missing_concrete()
+{
     let fixture = TempDir::new().expect("temp dir should exist");
 
     write(
@@ -46,7 +51,10 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
     );
     assert_has_finding(
         &outcome.findings,
-        &format!("env-invalid:{}:4", fixture.path().join(".env").to_string_lossy()),
+        &format!(
+            "env-invalid:{}:4",
+            fixture.path().join(".env").to_string_lossy()
+        ),
         Severity::Warn,
         "Invalid env syntax",
         "Line 4 could not be parsed as KEY=value.",
@@ -64,7 +72,10 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
         "Run \"maximus fix\" to append the missing keys to .env.example.",
         Some(fixture.path().join(".env.example")),
         true,
-        &[format!("env-example:sync:{}", fixture.path().to_string_lossy())],
+        &[format!(
+            "env-example:sync:{}",
+            fixture.path().to_string_lossy()
+        )],
     );
     assert_has_finding(
         &outcome.findings,
@@ -161,7 +172,9 @@ fn env_sync_planned_fix_uses_audited_snapshot_text() {
     let planned = outcome
         .planned_fixes
         .iter()
-        .find(|fix| fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy()))
+        .find(|fix| {
+            fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy())
+        })
         .expect("planned sync fix should exist")
         .clone();
 
@@ -191,16 +204,12 @@ fn env_example_render_helpers_match_js_create_and_sync_semantics() {
         "ALPHA=\nZETA=\n"
     );
 
-    let synced = render_synced_env_example(
-        "PRIMARY=\n",
-        &["ZETA".to_string(), "ALPHA".to_string()],
-    );
+    let synced =
+        render_synced_env_example("PRIMARY=\n", &["ZETA".to_string(), "ALPHA".to_string()]);
     assert_eq!(synced, "PRIMARY=\nALPHA=\nZETA=\n");
 
-    let synced_without_trailing_newline = render_synced_env_example(
-        "PRIMARY=",
-        &["ZETA".to_string(), "ALPHA".to_string()],
-    );
+    let synced_without_trailing_newline =
+        render_synced_env_example("PRIMARY=", &["ZETA".to_string(), "ALPHA".to_string()]);
     assert_eq!(synced_without_trailing_newline, "PRIMARY=\nALPHA=\nZETA=\n");
 
     let synced_with_js_like_locale_order = render_synced_env_example(
@@ -291,20 +300,23 @@ fn env_contract_matrix_local_only_fixture_creates_example_contract() {
     let planned = outcome
         .planned_fixes
         .iter()
-        .find(|fix| fix.public.id == format!("env-example:create:{}", fixture.path().to_string_lossy()))
+        .find(|fix| {
+            fix.public.id == format!("env-example:create:{}", fixture.path().to_string_lossy())
+        })
         .expect("planned create fix should exist")
         .clone();
 
     apply_fix(&planned).expect("planned fix should apply");
 
-    let output = fs::read_to_string(fixture.path().join(".env.example"))
-        .expect("example file should exist");
+    let output =
+        fs::read_to_string(fixture.path().join(".env.example")).expect("example file should exist");
     assert_eq!(output, "API_URL=\nAUTH_TOKEN=\n");
 }
 
 #[test]
 fn env_template_order_preservation_fixtures_match_js_outputs() {
-    let create_fixture = copy_fixture_to_temp("env-template-order-preservation/create-from-concrete");
+    let create_fixture =
+        copy_fixture_to_temp("env-template-order-preservation/create-from-concrete");
     let create_project = discover_project(create_fixture.path()).expect("project should discover");
     let create_outcome = run_env_check(&create_project).expect("check should run");
     let create_fix = create_outcome
@@ -321,7 +333,8 @@ fn env_template_order_preservation_fixtures_match_js_outputs() {
         "API_URL=\nAPI-URL=\nAPI.URL=\nVAR_1=\nVAR_10=\nVAR_2=\n"
     );
 
-    let sync_fixture = copy_fixture_to_temp("env-template-order-preservation/sync-existing-template");
+    let sync_fixture =
+        copy_fixture_to_temp("env-template-order-preservation/sync-existing-template");
     let sync_project = discover_project(sync_fixture.path()).expect("project should discover");
     let sync_outcome = run_env_check(&sync_project).expect("check should run");
     let sync_fix = sync_outcome
@@ -336,6 +349,68 @@ fn env_template_order_preservation_fixtures_match_js_outputs() {
     assert_eq!(
         synced_output,
         "VAR_2=\nAPI.URL=\nAPI_URL=\nAPI-URL=\nVAR_1=\nVAR_10=\n"
+    );
+}
+
+#[test]
+fn env_template_render_options_can_group_by_prefix_and_annotate_sources() {
+    let _guard = EnvTemplateRenderStateGuard;
+    set_env_template_render_options(EnvTemplateRenderOptions {
+        include_source_comments: true,
+        sort_mode: EnvTemplateSortMode::Prefix,
+    });
+
+    let create_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        create_fixture.path().join(".env"),
+        "AUTH_TOKEN=base-token\nAPI_URL=base-url\nSHARED=base-shared\n",
+    );
+    write(
+        create_fixture.path().join(".env.local"),
+        "AUTH_SECRET=local-secret\nSHARED=local-shared\n",
+    );
+
+    let create_project = discover_project(create_fixture.path()).expect("project should discover");
+    let create_outcome = run_env_check(&create_project).expect("check should run");
+    let create_fix = create_outcome
+        .planned_fixes
+        .first()
+        .expect("planned create fix should exist")
+        .clone();
+
+    apply_fix(&create_fix).expect("planned fix should apply");
+    let created_output = fs::read_to_string(create_fixture.path().join(".env.example"))
+        .expect("example file should exist");
+    assert_eq!(
+        created_output,
+        "# source: .env\nAPI_URL=\nAUTH_TOKEN=\n\n# source: .env.local\nAUTH_SECRET=\n\n# source: multiple\nSHARED=\n"
+    );
+
+    let sync_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        sync_fixture.path().join(".env"),
+        "AUTH_TOKEN=base-token\nAPI_URL=base-url\nSHARED=base-shared\n",
+    );
+    write(
+        sync_fixture.path().join(".env.local"),
+        "AUTH_SECRET=local-secret\nSHARED=local-shared\n",
+    );
+    write(sync_fixture.path().join(".env.example"), "API_URL=\n");
+
+    let sync_project = discover_project(sync_fixture.path()).expect("project should discover");
+    let sync_outcome = run_env_check(&sync_project).expect("check should run");
+    let sync_fix = sync_outcome
+        .planned_fixes
+        .first()
+        .expect("planned sync fix should exist")
+        .clone();
+
+    apply_fix(&sync_fix).expect("planned fix should apply");
+    let synced_output = fs::read_to_string(sync_fixture.path().join(".env.example"))
+        .expect("example file should exist");
+    assert_eq!(
+        synced_output,
+        "API_URL=\n# source: .env\nAUTH_TOKEN=\n\n# source: .env.local\nAUTH_SECRET=\n\n# source: multiple\nSHARED=\n"
     );
 }
 
@@ -417,4 +492,12 @@ fn assert_has_finding(
     assert_eq!(finding.file, file);
     assert_eq!(finding.fixable, fixable);
     assert_eq!(finding.fix_ids, fix_ids);
+}
+
+struct EnvTemplateRenderStateGuard;
+
+impl Drop for EnvTemplateRenderStateGuard {
+    fn drop(&mut self) {
+        reset_env_template_render_state();
+    }
 }

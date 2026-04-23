@@ -13,6 +13,10 @@ use std::io;
 use std::process;
 
 use maximus_checks::{audit_project_with_config_root, registered_check_ids};
+use maximus_core::env_parser::{
+    reset_env_template_render_state, set_env_template_render_options, EnvTemplateRenderOptions,
+    EnvTemplateSortMode,
+};
 use maximus_core::{
     apply_fixes, load_maximus_config, preview_fixes, select_fix_plans, select_planned_fixes,
     AuditResult, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
@@ -24,6 +28,14 @@ use crate::args::{parse_args, ArgsError, Flags};
 struct ResolvedConfig {
     config: MaximusConfig,
     ignore_root: std::path::PathBuf,
+}
+
+struct EnvTemplateRenderStateGuard;
+
+impl Drop for EnvTemplateRenderStateGuard {
+    fn drop(&mut self) {
+        reset_env_template_render_state();
+    }
 }
 
 #[derive(Debug)]
@@ -106,6 +118,7 @@ where
     }
 
     validate_command_flags(parsed.command.as_deref(), &parsed.flags)?;
+    let _env_template_render_state = configure_env_template_render_state(&parsed.flags);
 
     if !matches!(
         parsed.command.as_deref(),
@@ -314,12 +327,15 @@ fn validate_check_ids(source: &str, ids: &[String]) -> Result<(), CliError> {
 }
 
 fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), CliError> {
-    let uses_fix_only_flags =
-        flags.diff || !flags.fix_ids.is_empty() || !flags.fix_prefixes.is_empty();
+    let uses_fix_only_flags = flags.diff
+        || !flags.fix_ids.is_empty()
+        || !flags.fix_prefixes.is_empty()
+        || flags.env_group_sort.is_some()
+        || flags.env_source_comments;
 
     if uses_fix_only_flags && (flags.help || command != Some("fix")) {
         return Err(CliError::InvalidArguments(
-            "Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\"."
+            "Options \"--diff\", \"--fix-id\", \"--fix-prefix\", \"--env-group-sort\", and \"--env-source-comments\" are only available for \"fix\"."
                 .to_string(),
         ));
     }
@@ -331,6 +347,21 @@ fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), Cl
     }
 
     Ok(())
+}
+
+fn configure_env_template_render_state(flags: &Flags) -> EnvTemplateRenderStateGuard {
+    let sort_mode = match flags.env_group_sort {
+        Some(crate::args::EnvGroupSortMode::Prefix) => EnvTemplateSortMode::Prefix,
+        Some(crate::args::EnvGroupSortMode::Plain) | None => EnvTemplateSortMode::Plain,
+    };
+
+    reset_env_template_render_state();
+    set_env_template_render_options(EnvTemplateRenderOptions {
+        include_source_comments: flags.env_source_comments,
+        sort_mode,
+    });
+
+    EnvTemplateRenderStateGuard
 }
 
 fn resolve_target_dir(path_arg: Option<&OsStr>) -> io::Result<std::path::PathBuf> {
@@ -351,7 +382,10 @@ fn result_with_selected_fixes(result: &AuditResult, fixes: Vec<FixPlan>) -> Audi
 mod tests {
     use std::path::PathBuf;
 
+    use crate::args::{EnvGroupSortMode, Flags};
+
     use super::resolve_target_dir;
+    use super::{validate_command_flags, CliError};
 
     #[test]
     fn resolve_target_dir_uses_absolute_current_dir_by_default() {
@@ -370,5 +404,18 @@ mod tests {
         let path = PathBuf::from("/tmp");
         let resolved = resolve_target_dir(Some(path.as_os_str())).expect("path should resolve");
         assert_eq!(resolved, path);
+    }
+
+    #[test]
+    fn env_template_render_flags_are_fix_only() {
+        let mut flags = Flags::default();
+        flags.env_group_sort = Some(EnvGroupSortMode::Prefix);
+        flags.env_source_comments = true;
+
+        let error = validate_command_flags(Some("audit"), &flags).expect_err("flags should fail");
+
+        assert!(
+            matches!(error, CliError::InvalidArguments(message) if message.contains("--env-group-sort"))
+        );
     }
 }

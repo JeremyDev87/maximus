@@ -1,17 +1,23 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
+use maximus_core::env_parser::{
+    clear_env_template_render_contexts, env_template_render_options,
+    register_env_template_render_context, EnvTemplateRenderContext, EnvTemplateSourceGroup,
+};
 use maximus_core::{
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, make_finding,
     parse_env, plan_create_env_example, plan_sync_env_example, read_text_if_exists,
-    render_env_template, sort_findings, unique_fixes, FileKind, FindingInput, FixPlan,
-    ProjectFile, ProjectSnapshot, Severity,
+    render_env_template, sort_findings, unique_fixes, FileKind, FindingInput, FixPlan, ProjectFile,
+    ProjectSnapshot, Severity,
 };
 
 use crate::check_outcome::CheckOutcome;
 
 pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
+    clear_env_template_render_contexts();
+
     let mut findings = Vec::new();
     let mut fixes = Vec::new();
     let mut planned_fixes = Vec::new();
@@ -63,8 +69,7 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                     fix_ids: Vec::new(),
                     fixable: false,
                     hint: Some(
-                        "Keep one declaration per env file so overrides stay explicit."
-                            .to_string(),
+                        "Keep one declaration per env file so overrides stay explicit.".to_string(),
                     ),
                     severity: Some(Severity::Error),
                 }));
@@ -120,7 +125,9 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                 title: "Missing .env.example contract".to_string(),
                 category: Some("env".to_string()),
                 detail: Some("Runtime env files exist, but .env.example is missing.".to_string()),
-                file: concrete_records.first().map(|record| record.file.path.clone()),
+                file: concrete_records
+                    .first()
+                    .map(|record| record.file.path.clone()),
                 fix_ids: vec![format!(
                     "env-example:create:{}",
                     directory.dir.to_string_lossy()
@@ -138,6 +145,7 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                 ),
                 files: vec![output_path],
             });
+            register_env_template_source_context(&concrete_records, &contract_keys);
             planned_fixes.push(plan_create_env_example(
                 &project.root_dir,
                 &directory.dir,
@@ -185,6 +193,7 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                     ),
                     files: vec![example_record.file.path.clone()],
                 });
+                register_env_template_source_context(&concrete_records, &missing_keys);
                 planned_fixes.push(plan_sync_env_example(
                     &project.root_dir,
                     &example_record.file.path,
@@ -260,7 +269,9 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
             }
         }
 
-        let base_env = parsed_records.iter().find(|record| record.file.name == ".env");
+        let base_env = parsed_records
+            .iter()
+            .find(|record| record.file.name == ".env");
         let local_env = parsed_records
             .iter()
             .find(|record| record.file.name == ".env.local");
@@ -363,6 +374,59 @@ fn relative_display_path(root_dir: &Path, target: &Path) -> String {
             }
         })
         .unwrap_or_else(|| target.to_string_lossy().into_owned())
+}
+
+fn register_env_template_source_context(records: &[&ParsedEnvRecord], keys: &[String]) {
+    if !env_template_render_options().include_source_comments {
+        return;
+    }
+
+    let requested_keys = keys.iter().cloned().collect::<BTreeSet<_>>();
+    let mut key_sources: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for record in records {
+        for key in &record.parsed.order {
+            if requested_keys.contains(key) {
+                key_sources
+                    .entry(key.clone())
+                    .or_default()
+                    .insert(record.file.name.clone());
+            }
+        }
+    }
+
+    let mut source_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for key in keys {
+        let Some(sources) = key_sources.get(key) else {
+            source_groups
+                .entry("unknown".to_string())
+                .or_default()
+                .push(key.clone());
+            continue;
+        };
+
+        let source_label = if sources.len() > 1 {
+            "multiple".to_string()
+        } else {
+            sources
+                .iter()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string())
+        };
+
+        source_groups
+            .entry(source_label)
+            .or_default()
+            .push(key.clone());
+    }
+
+    register_env_template_render_context(EnvTemplateRenderContext {
+        source_groups: source_groups
+            .into_iter()
+            .map(|(source, keys)| EnvTemplateSourceGroup { source, keys })
+            .collect(),
+    });
 }
 
 fn score_contract_record(file_name: &str) -> usize {

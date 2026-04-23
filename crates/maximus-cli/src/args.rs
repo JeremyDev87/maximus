@@ -5,6 +5,8 @@ use std::fmt::{Display, Formatter};
 pub struct Flags {
     pub diff: bool,
     pub dry_run: bool,
+    pub env_group_sort: Option<EnvGroupSortMode>,
+    pub env_source_comments: bool,
     pub fail_on: Option<String>,
     pub fix_ids: Vec<String>,
     pub fix_prefixes: Vec<String>,
@@ -21,10 +23,17 @@ pub struct ParsedArgs {
     pub flags: Flags,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvGroupSortMode {
+    Plain,
+    Prefix,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgsError {
     EmptyValue(&'static str),
     MissingValue(&'static str),
+    InvalidValue(&'static str, String),
 }
 
 impl Display for ArgsError {
@@ -32,6 +41,9 @@ impl Display for ArgsError {
         match self {
             Self::EmptyValue(flag) => write!(f, "Option \"{flag}\" requires a non-empty value."),
             Self::MissingValue(flag) => write!(f, "Option \"{flag}\" requires a value."),
+            Self::InvalidValue(flag, value) => {
+                write!(f, "Option \"{flag}\" does not accept value \"{value}\".")
+            }
         }
     }
 }
@@ -49,6 +61,11 @@ where
         match token.to_str() {
             Some("--diff") => flags.diff = true,
             Some("--dry-run") => flags.dry_run = true,
+            Some("--env-group-sort") => {
+                let value = next_option_value(tokens.next(), "--env-group-sort")?;
+                flags.env_group_sort = Some(parse_env_group_sort(&value)?);
+            }
+            Some("--env-source-comments") => flags.env_source_comments = true,
             Some("--fail-on") => {
                 let value = next_option_value(tokens.next(), "--fail-on")?;
                 flags.fail_on = Some(value.to_string_lossy().into_owned());
@@ -125,11 +142,22 @@ fn split_csv_values(value: &OsString, flag: &'static str) -> Result<Vec<String>,
     Ok(values)
 }
 
+fn parse_env_group_sort(value: &OsString) -> Result<EnvGroupSortMode, ArgsError> {
+    match value.to_string_lossy().as_ref() {
+        "none" => Ok(EnvGroupSortMode::Plain),
+        "prefix" => Ok(EnvGroupSortMode::Prefix),
+        other => Err(ArgsError::InvalidValue(
+            "--env-group-sort",
+            other.to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
 
-    use super::{parse_args, ArgsError, Flags, ParsedArgs};
+    use super::{parse_args, ArgsError, EnvGroupSortMode, Flags, ParsedArgs};
 
     #[test]
     fn parse_args_collects_known_flags_and_positionals() {
@@ -144,6 +172,8 @@ mod tests {
                 flags: Flags {
                     diff: false,
                     dry_run: true,
+                    env_group_sort: None,
+                    env_source_comments: false,
                     fail_on: None,
                     fix_ids: Vec::new(),
                     fix_prefixes: Vec::new(),
@@ -203,6 +233,32 @@ mod tests {
         );
         assert_eq!(parsed.flags.fix_prefixes, vec!["env-example:".to_string()]);
         assert!(parsed.flags.diff);
+    }
+
+    #[test]
+    fn parse_args_collects_env_template_render_flags() {
+        let parsed = parse_args([
+            "fix",
+            "./repo",
+            "--env-group-sort",
+            "prefix",
+            "--env-source-comments",
+        ])
+        .expect("args should parse");
+
+        assert_eq!(parsed.flags.env_group_sort, Some(EnvGroupSortMode::Prefix));
+        assert!(parsed.flags.env_source_comments);
+    }
+
+    #[test]
+    fn parse_args_errors_when_env_group_sort_value_is_invalid() {
+        let error = parse_args(["fix", "--env-group-sort", "alphabetical"])
+            .expect_err("invalid env group sort should fail");
+
+        assert_eq!(
+            error,
+            ArgsError::InvalidValue("--env-group-sort", "alphabetical".to_string())
+        );
     }
 
     #[test]

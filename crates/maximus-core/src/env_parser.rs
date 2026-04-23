@@ -1,7 +1,10 @@
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, VecDeque};
 
+use crate::text_order::{compare_env_template_keys, locale_compare_like};
 use indexmap::IndexMap;
-use crate::text_order::locale_compare_like;
+
+pub use crate::text_order::EnvTemplateSortMode;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvEntry {
@@ -32,6 +35,59 @@ pub struct ParsedEnv {
     pub invalid_lines: Vec<InvalidEnvLine>,
     pub order: Vec<String>,
     pub values: IndexMap<String, EnvEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EnvTemplateRenderOptions {
+    pub include_source_comments: bool,
+    pub sort_mode: EnvTemplateSortMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvTemplateSourceGroup {
+    pub source: String,
+    pub keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EnvTemplateRenderContext {
+    pub source_groups: Vec<EnvTemplateSourceGroup>,
+}
+
+thread_local! {
+    static ENV_TEMPLATE_RENDER_OPTIONS: RefCell<EnvTemplateRenderOptions> =
+        RefCell::new(EnvTemplateRenderOptions::default());
+    static ENV_TEMPLATE_RENDER_CONTEXTS: RefCell<VecDeque<EnvTemplateRenderContext>> =
+        RefCell::new(VecDeque::new());
+}
+
+pub fn env_template_render_options() -> EnvTemplateRenderOptions {
+    ENV_TEMPLATE_RENDER_OPTIONS.with(|options| options.borrow().clone())
+}
+
+pub fn set_env_template_render_options(options: EnvTemplateRenderOptions) {
+    ENV_TEMPLATE_RENDER_OPTIONS.with(|current| {
+        *current.borrow_mut() = options;
+    });
+}
+
+pub fn register_env_template_render_context(context: EnvTemplateRenderContext) {
+    ENV_TEMPLATE_RENDER_CONTEXTS.with(|contexts| {
+        contexts.borrow_mut().push_back(context);
+    });
+}
+
+pub fn clear_env_template_render_contexts() {
+    ENV_TEMPLATE_RENDER_CONTEXTS.with(|contexts| {
+        contexts.borrow_mut().clear();
+    });
+}
+
+pub fn reset_env_template_render_state() {
+    ENV_TEMPLATE_RENDER_OPTIONS.with(|current| {
+        *current.borrow_mut() = EnvTemplateRenderOptions::default();
+    });
+    clear_env_template_render_contexts();
 }
 
 pub fn parse_env(text: &str, label: Option<&str>) -> ParsedEnv {
@@ -108,7 +164,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let mut unique_keys = keys
+    let unique_keys = keys
         .into_iter()
         .map(|key| key.as_ref().to_string())
         .collect::<BTreeSet<_>>()
@@ -119,15 +175,17 @@ where
         return String::new();
     }
 
-    unique_keys.sort_by(|left, right| locale_compare_like(left, right));
+    let options = env_template_render_options();
 
-    let mut rendered = unique_keys
-        .into_iter()
-        .map(|key| format!("{key}="))
-        .collect::<Vec<_>>()
-        .join("\n");
-    rendered.push('\n');
-    rendered
+    if options.include_source_comments {
+        if let Some(rendered) =
+            render_env_template_with_source_comments(&unique_keys, options.sort_mode)
+        {
+            return rendered;
+        }
+    }
+
+    render_env_template_lines(&unique_keys, options.sort_mode)
 }
 
 pub fn is_template_env_file_name(name: &str) -> bool {
@@ -198,9 +256,7 @@ fn trim_js_like(value: &str) -> &str {
 }
 
 fn trim_js_like_start(value: &str) -> &str {
-    value.trim_start_matches(|character: char| {
-        character.is_whitespace() || character == '\u{feff}'
-    })
+    value.trim_start_matches(|character: char| character.is_whitespace() || character == '\u{feff}')
 }
 
 fn normalize_env_value(raw_value: &str) -> String {
@@ -240,4 +296,75 @@ fn is_placeholder_value(value: &str) -> bool {
                     .all(|character| character.is_ascii_lowercase() || character == '-')
         })
         .unwrap_or(false)
+}
+
+fn render_env_template_with_source_comments(
+    unique_keys: &[String],
+    sort_mode: EnvTemplateSortMode,
+) -> Option<String> {
+    let context =
+        ENV_TEMPLATE_RENDER_CONTEXTS.with(|contexts| contexts.borrow_mut().pop_front())?;
+    let requested_keys = unique_keys.iter().cloned().collect::<BTreeSet<_>>();
+    let mut groups = context
+        .source_groups
+        .into_iter()
+        .filter_map(|group| {
+            let keys = group
+                .keys
+                .into_iter()
+                .filter(|key| requested_keys.contains(key))
+                .collect::<Vec<_>>();
+
+            if keys.is_empty() {
+                None
+            } else {
+                Some(EnvTemplateSourceGroup {
+                    source: group.source,
+                    keys,
+                })
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if groups.is_empty() {
+        return None;
+    }
+
+    groups.sort_by(|left, right| locale_compare_like(&left.source, &right.source));
+
+    let mut lines = Vec::new();
+    for (index, group) in groups.into_iter().enumerate() {
+        if index > 0 {
+            lines.push(String::new());
+        }
+
+        lines.push(format!("# source: {}", group.source));
+        lines.extend(render_keys_for_group(group.keys, sort_mode));
+    }
+
+    Some(render_lines(lines))
+}
+
+fn render_env_template_lines(keys: &[String], sort_mode: EnvTemplateSortMode) -> String {
+    let mut rendered_keys = keys.to_vec();
+    rendered_keys.sort_by(|left, right| compare_env_template_keys(left, right, sort_mode));
+
+    render_lines(
+        rendered_keys
+            .into_iter()
+            .map(|key| format!("{key}="))
+            .collect(),
+    )
+}
+
+fn render_keys_for_group(mut keys: Vec<String>, sort_mode: EnvTemplateSortMode) -> Vec<String> {
+    keys.sort_by(|left, right| compare_env_template_keys(left, right, sort_mode));
+    keys.dedup();
+    keys.into_iter().map(|key| format!("{key}=")).collect()
+}
+
+fn render_lines(lines: Vec<String>) -> String {
+    let mut rendered = lines.join("\n");
+    rendered.push('\n');
+    rendered
 }
