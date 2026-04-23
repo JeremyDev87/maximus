@@ -142,15 +142,8 @@ fn run_audit_command(
         println!("{}", report_text::format_audit_report(&audited.result));
     }
 
-    Ok(fail_policy::exit_code(
-        &audited.result.summary,
-        resolved
-            .config
-            .report
-            .fail_on
-            .as_ref()
-            .unwrap_or(&FailOnLevel::Warn),
-    ))
+    let fail_on = effective_fail_on_level(&resolved.config);
+    Ok(fail_policy::exit_code(&audited.result.summary, &fail_on))
 }
 
 fn run_doctor_command(
@@ -167,15 +160,8 @@ fn run_doctor_command(
         println!("{}", report_text::format_doctor_report(&audited.result));
     }
 
-    Ok(fail_policy::exit_code(
-        &audited.result.summary,
-        resolved
-            .config
-            .report
-            .fail_on
-            .as_ref()
-            .unwrap_or(&FailOnLevel::Warn),
-    ))
+    let fail_on = effective_fail_on_level(&resolved.config);
+    Ok(fail_policy::exit_code(&audited.result.summary, &fail_on))
 }
 
 fn run_fix_command(
@@ -255,15 +241,8 @@ fn run_fix_command(
         );
     }
 
-    Ok(fail_policy::exit_code(
-        &final_result.summary,
-        resolved
-            .config
-            .report
-            .fail_on
-            .as_ref()
-            .unwrap_or(&FailOnLevel::Warn),
-    ))
+    let fail_on = effective_fail_on_level(&resolved.config);
+    Ok(fail_policy::exit_code(&final_result.summary, &fail_on))
 }
 
 fn resolve_effective_config(
@@ -301,6 +280,10 @@ fn resolve_effective_config(
         config,
         ignore_root,
     })
+}
+
+fn effective_fail_on_level(config: &MaximusConfig) -> FailOnLevel {
+    config.report.fail_on.clone().unwrap_or_default()
 }
 
 fn parse_fail_on_level(value: &str) -> Result<FailOnLevel, CliError> {
