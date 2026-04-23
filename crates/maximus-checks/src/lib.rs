@@ -4,7 +4,10 @@ mod check_outcome;
 mod config_duplicates;
 mod env;
 mod eslint_prettier;
+mod jsx_config;
 pub mod lockfiles;
+mod module_system;
+mod monorepo_tsconfig;
 pub mod package_entrypoints;
 pub mod registry;
 pub mod structure;
@@ -14,6 +17,9 @@ pub use check_outcome::CheckOutcome;
 pub use config_duplicates::run_config_duplicate_check;
 pub use env::{render_created_env_example, render_synced_env_example, run_env_check};
 pub use eslint_prettier::run_eslint_prettier_check;
+pub use jsx_config::run_jsx_config_check;
+pub use module_system::run_module_system_check;
+pub use monorepo_tsconfig::run_monorepo_tsconfig_check;
 pub use registry::{
     audit_project, audit_project_with_config, audit_project_with_config_root, registered_check_ids,
     run_registered_checks, run_registered_checks_with_config,
