@@ -47,6 +47,12 @@ pub enum FailOnLevel {
     None,
 }
 
+impl Default for FailOnLevel {
+    fn default() -> Self {
+        Self::Warn
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportConfig {
