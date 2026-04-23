@@ -18,10 +18,14 @@ fn js_maximus() -> Command {
 #[test]
 fn text_commands_match_js_reference_outputs() {
     for args in [
-        vec!["audit".to_string(), fixture_path("clean-project").display().to_string()],
-        vec!["doctor".to_string(), fixture_path("clean-project").display().to_string()],
-        vec!["audit".to_string(), fixture_path("reference-env").display().to_string()],
-        vec!["doctor".to_string(), fixture_path("reference-env").display().to_string()],
+        vec![
+            "audit".to_string(),
+            fixture_path("clean-project").display().to_string(),
+        ],
+        vec![
+            "audit".to_string(),
+            fixture_path("reference-env").display().to_string(),
+        ],
         vec![
             "fix".to_string(),
             fixture_path("reference-env").display().to_string(),
@@ -33,6 +37,36 @@ fn text_commands_match_js_reference_outputs() {
         ],
     ] {
         assert_command_matches_js(&args);
+    }
+}
+
+#[test]
+fn doctor_text_commands_match_rust_golden_outputs() {
+    for (fixture, golden_file) in [
+        ("clean-project", "clean-project.doctor.txt"),
+        ("reference-env", "env-missing-example.doctor.txt"),
+        ("reference-tsconfig", "tsconfig-missing-alias.doctor.txt"),
+        ("tsconfig-patterns", "tsconfig-patterns.doctor.txt"),
+        ("windows-crlf", "windows-crlf.doctor.txt"),
+    ] {
+        let target = fixture_path(fixture);
+        let output = rust_maximus()
+            .args(["doctor", target.to_string_lossy().as_ref()])
+            .output()
+            .expect("rust doctor should run");
+
+        assert_eq!(output.status.code(), Some(doctor_expected_status(fixture)));
+        assert_eq!(
+            normalize_output(&output.stdout, &target),
+            normalize_output(
+                fs::read(path_in_workspace("test/golden-rust").join(golden_file))
+                    .expect("golden file should exist")
+                    .as_slice(),
+                &target
+            ),
+            "{fixture}"
+        );
+        assert!(output.stderr.is_empty(), "{fixture}");
     }
 }
 
@@ -86,7 +120,8 @@ fn fix_apply_matches_js_for_text_output_and_written_file() {
     );
     assert_eq!(rust_output.stderr, js_output.stderr);
     assert_eq!(
-        fs::read_to_string(rust_fixture.join(".env.example")).expect("rust output file should exist"),
+        fs::read_to_string(rust_fixture.join(".env.example"))
+            .expect("rust output file should exist"),
         fs::read_to_string(js_fixture.join(".env.example")).expect("js output file should exist")
     );
 }
@@ -113,7 +148,8 @@ fn fix_apply_matches_js_for_json_shape_and_written_file() {
 
     assert_eq!(rust_json, js_json);
     assert_eq!(
-        fs::read_to_string(rust_fixture.join(".env.example")).expect("rust output file should exist"),
+        fs::read_to_string(rust_fixture.join(".env.example"))
+            .expect("rust output file should exist"),
         fs::read_to_string(js_fixture.join(".env.example")).expect("js output file should exist")
     );
 }
@@ -128,7 +164,11 @@ fn assert_command_matches_js(args: &[String]) {
         .output()
         .expect("js command should run");
 
-    assert_eq!(rust_output.status.code(), js_output.status.code(), "{args:?}");
+    assert_eq!(
+        rust_output.status.code(),
+        js_output.status.code(),
+        "{args:?}"
+    );
     assert_eq!(
         normalize_output_for_args(&rust_output, args),
         normalize_output_for_args(&js_output, args),
@@ -147,7 +187,11 @@ fn assert_json_command_matches_js(args: &[String]) {
         .output()
         .expect("js command should run");
 
-    assert_eq!(rust_output.status.code(), js_output.status.code(), "{args:?}");
+    assert_eq!(
+        rust_output.status.code(),
+        js_output.status.code(),
+        "{args:?}"
+    );
     assert_eq!(
         normalize_json_output(&rust_output, Path::new(&args[1])),
         normalize_json_output(&js_output, Path::new(&args[1])),
@@ -169,7 +213,8 @@ fn normalize_output(stdout: &[u8], target_dir: &Path) -> String {
 }
 
 fn normalize_json_output(output: &Output, target_dir: &Path) -> Value {
-    let mut value: Value = serde_json::from_slice(&output.stdout).expect("json output should parse");
+    let mut value: Value =
+        serde_json::from_slice(&output.stdout).expect("json output should parse");
     rewrite_json_paths(&mut value, target_dir);
     value
 }
@@ -196,6 +241,18 @@ fn rewrite_json_paths(value: &mut Value, target_dir: &Path) {
 
 fn fixture_path(name: &str) -> PathBuf {
     workspace_root().join("test/fixtures").join(name)
+}
+
+fn path_in_workspace(path: &str) -> PathBuf {
+    workspace_root().join(path)
+}
+
+fn doctor_expected_status(fixture: &str) -> i32 {
+    match fixture {
+        "clean-project" => 0,
+        "reference-env" | "tsconfig-patterns" | "windows-crlf" | "reference-tsconfig" => 1,
+        other => panic!("missing expected status for fixture {other}"),
+    }
 }
 
 fn prepare_temp_reference_env() -> PathBuf {

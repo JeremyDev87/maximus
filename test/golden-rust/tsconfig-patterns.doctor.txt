@@ -1,0 +1,34 @@
+Maximus doctor
+Target: <TARGET>
+
+Diagnosis: attention needed
+Project shape: single package, 0 package(s), 4 config file(s), 0 env folder(s)
+
+Prescription
+- No automatic fixes are currently available.
+- Review 3 manual issue(s) in priority order below.
+
+Top 3 priorities
+1. [warn] Include pattern does not match any files
+   file: empty-include/tsconfig.json
+   next: Fix or remove empty include patterns before TypeScript silently skips expected inputs.
+2. [info] Exclude pattern does not filter any included files
+   file: empty-exclude/tsconfig.json
+   next: Remove or tighten exclude entries that do not change the effective TypeScript input set.
+3. [info] Exclude pattern does not filter any included files
+   file: exclude-only/tsconfig.json
+   next: Remove or tighten exclude entries that do not change the effective TypeScript input set.
+
+Findings
+- [warn] Include pattern does not match any files
+  file: empty-include/tsconfig.json
+  detail: include pattern "src/missing/**/*.ts" matched 0 files under base dir <TARGET>/empty-include.
+  hint: Fix or remove empty include patterns before TypeScript silently skips expected inputs.
+- [info] Exclude pattern does not filter any included files
+  file: empty-exclude/tsconfig.json
+  detail: exclude pattern "generated/**/*.ts" removed 0 files from 1 included file(s) under base dir <TARGET>/empty-exclude.
+  hint: Remove or tighten exclude entries that do not change the effective TypeScript input set.
+- [info] Exclude pattern does not filter any included files
+  file: exclude-only/tsconfig.json
+  detail: exclude pattern "missing/**/*.ts" removed 0 files from 1 included file(s) under base dir <TARGET>/exclude-only.
+  hint: Remove or tighten exclude entries that do not change the effective TypeScript input set.

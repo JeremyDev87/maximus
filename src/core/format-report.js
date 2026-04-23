@@ -78,6 +78,9 @@ export function formatDoctorReport(result) {
     lines.push("No config drift detected.");
   } else {
     lines.push("");
+    lines.push("Top 3 priorities");
+    lines.push(...formatTopPriorities(result));
+    lines.push("");
     lines.push("Findings");
     lines.push(...formatFindings(result));
   }
@@ -150,6 +153,24 @@ function formatFindings(result) {
 
     if (finding.hint) {
       lines.push(`  hint: ${finding.hint}`);
+    }
+
+    return lines;
+  });
+}
+
+function formatTopPriorities(result) {
+  return result.findings.slice(0, 3).flatMap((finding, index) => {
+    const lines = [`${index + 1}. [${finding.severity}] ${finding.title}`];
+
+    if (finding.file) {
+      lines.push(`   file: ${formatFile(result.rootDir, finding.file)}`);
+    }
+
+    if (finding.hint) {
+      lines.push(`   next: ${finding.hint}`);
+    } else if (finding.detail) {
+      lines.push(`   next: ${finding.detail}`);
     }
 
     return lines;

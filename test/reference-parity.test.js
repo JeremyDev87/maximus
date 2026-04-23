@@ -14,6 +14,7 @@ const scenarios = [
     args: ["audit", "./test/fixtures/clean-project"],
     goldenFile: "clean-project.audit.txt",
     expectedStatus: 0,
+    runtime: "js",
     targetDir: path.join(repoRoot, "test", "fixtures", "clean-project"),
   },
   {
@@ -21,6 +22,7 @@ const scenarios = [
     args: ["doctor", "./test/fixtures/clean-project"],
     goldenFile: "clean-project.doctor.txt",
     expectedStatus: 0,
+    runtime: "rust",
     targetDir: path.join(repoRoot, "test", "fixtures", "clean-project"),
   },
   {
@@ -28,6 +30,7 @@ const scenarios = [
     args: ["audit", "./test/fixtures/reference-env"],
     goldenFile: "env-missing-example.audit.txt",
     expectedStatus: 1,
+    runtime: "js",
     targetDir: path.join(repoRoot, "test", "fixtures", "reference-env"),
   },
   {
@@ -35,13 +38,39 @@ const scenarios = [
     args: ["doctor", "./test/fixtures/reference-env"],
     goldenFile: "env-missing-example.doctor.txt",
     expectedStatus: 1,
+    runtime: "rust",
     targetDir: path.join(repoRoot, "test", "fixtures", "reference-env"),
+  },
+  {
+    name: "reference tsconfig doctor output stays stable",
+    args: ["doctor", "./test/fixtures/reference-tsconfig"],
+    goldenFile: "tsconfig-missing-alias.doctor.txt",
+    expectedStatus: 1,
+    runtime: "rust",
+    targetDir: path.join(repoRoot, "test", "fixtures", "reference-tsconfig"),
+  },
+  {
+    name: "tsconfig-patterns doctor output stays stable",
+    args: ["doctor", "./test/fixtures/tsconfig-patterns"],
+    goldenFile: "tsconfig-patterns.doctor.txt",
+    expectedStatus: 1,
+    runtime: "rust",
+    targetDir: path.join(repoRoot, "test", "fixtures", "tsconfig-patterns"),
+  },
+  {
+    name: "windows-crlf doctor output stays stable",
+    args: ["doctor", "./test/fixtures/windows-crlf"],
+    goldenFile: "windows-crlf.doctor.txt",
+    expectedStatus: 1,
+    runtime: "rust",
+    targetDir: path.join(repoRoot, "test", "fixtures", "windows-crlf"),
   },
   {
     name: "reference env fix dry-run output stays stable",
     args: ["fix", "./test/fixtures/reference-env", "--dry-run"],
     goldenFile: "env-missing-example.fix-dry-run.txt",
     expectedStatus: 1,
+    runtime: "js",
     targetDir: path.join(repoRoot, "test", "fixtures", "reference-env"),
   },
   {
@@ -49,16 +78,14 @@ const scenarios = [
     args: ["audit", "./test/fixtures/reference-tsconfig"],
     goldenFile: "tsconfig-missing-alias.audit.txt",
     expectedStatus: 1,
+    runtime: "js",
     targetDir: path.join(repoRoot, "test", "fixtures", "reference-tsconfig"),
   },
 ];
 
 for (const scenario of scenarios) {
   test(scenario.name, async () => {
-    const result = spawnSync(process.execPath, ["./bin/maximus.js", ...scenario.args], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    });
+    const result = runScenario(scenario);
 
     assert.equal(result.status, scenario.expectedStatus, result.stderr);
 
@@ -69,6 +96,20 @@ for (const scenario of scenarios) {
     );
 
     assert.equal(actual, golden);
+  });
+}
+
+function runScenario(scenario) {
+  if (scenario.runtime === "rust") {
+    return spawnSync("cargo", ["run", "-q", "-p", "maximus-cli", "--", ...scenario.args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+  }
+
+  return spawnSync(process.execPath, ["./bin/maximus.js", ...scenario.args], {
+    cwd: repoRoot,
+    encoding: "utf8",
   });
 }
 

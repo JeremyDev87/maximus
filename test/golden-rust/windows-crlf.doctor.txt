@@ -1,0 +1,27 @@
+Maximus doctor
+Target: <TARGET>
+
+Diagnosis: blocking issues
+Project shape: single package, 0 package(s), 2 config file(s), 1 env folder(s)
+
+Prescription
+- Run "maximus fix" to apply 1 safe fix(es).
+- Review 1 manual issue(s) in priority order below.
+
+Top 3 priorities
+1. [error] Path alias target does not exist
+   file: tsconfig.json
+   next: Update or remove stale aliases before they break editor and build resolution.
+2. [warn] Missing .env.example contract
+   file: .env
+   next: Run "maximus fix" to create a blank contract file.
+
+Findings
+- [error] Path alias target does not exist
+  file: tsconfig.json
+  detail: @app/* points to src/*, but the resolved path was not found.
+  hint: Update or remove stale aliases before they break editor and build resolution.
+- [warn] Missing .env.example contract
+  file: .env
+  detail: Runtime env files exist, but .env.example is missing.
+  hint: Run "maximus fix" to create a blank contract file.

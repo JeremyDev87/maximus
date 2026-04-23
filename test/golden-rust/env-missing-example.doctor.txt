@@ -8,6 +8,11 @@ Prescription
 - Run "maximus fix" to apply 1 safe fix(es).
 - No manual follow-up is required right now.
 
+Top 3 priorities
+1. [warn] Missing .env.example contract
+   file: .env
+   next: Run "maximus fix" to create a blank contract file.
+
 Findings
 - [warn] Missing .env.example contract
   file: .env
