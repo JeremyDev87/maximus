@@ -1,0 +1,14 @@
+{
+  "name": "package-files-clean",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/module.js",
+  "types": "./dist/types.d.ts",
+  "bin": {
+    "maximus": "./bin/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./feature": "./dist/feature.js"
+  }
+}

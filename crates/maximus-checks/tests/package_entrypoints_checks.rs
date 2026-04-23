@@ -6,6 +6,17 @@ use maximus_core::{discover_project, Severity};
 use tempfile::TempDir;
 
 #[test]
+fn package_entrypoints_check_keeps_the_clean_package_files_fixture_quiet() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test/fixtures/package-files/clean");
+
+    let project = discover_project(&fixture).expect("project should discover");
+    let outcome = run_package_entrypoints_check(&project).expect("check should run");
+
+    assert!(outcome.findings.is_empty(), "clean package fixture should stay quiet");
+}
+
+#[test]
 fn package_entrypoints_check_reports_missing_relative_targets_and_recurses_through_branches() {
     let fixture = TempDir::new().expect("temp dir should exist");
 
