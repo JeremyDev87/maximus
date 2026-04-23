@@ -142,6 +142,12 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
             &file.dir,
             &config,
         )?;
+        collect_types_and_type_roots_findings(
+            &mut findings,
+            &file.path,
+            &file.dir,
+            compiler_options,
+        )?;
 
         let Some(paths_config) = compiler_options.and_then(|options| options.get("paths")) else {
             continue;
@@ -175,6 +181,7 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
             .unwrap_or_else(|| file.dir.clone());
 
         collect_paths_findings(&mut findings, &file.path, &base_dir, paths_config)?;
+        collect_path_alias_shadowing_findings(&mut findings, &file.path, paths_config);
 
         if let Some(package_file) = find_nearest_package_file(project, &file.dir) {
             if let Some(package_text) = read_text_if_exists(&package_file.path)? {
@@ -643,6 +650,392 @@ fn collect_paths_findings(
     Ok(())
 }
 
+fn collect_path_alias_shadowing_findings(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    paths_config: &Map<String, Value>,
+) {
+    let aliases = paths_config.keys().cloned().collect::<Vec<_>>();
+
+    for alias in &aliases {
+        if !is_package_style_alias(alias) {
+            continue;
+        }
+
+        findings.push(make_finding(FindingInput {
+            id: format!(
+                "tsconfig-paths-shadow-package:{}:{alias}",
+                file_path.to_string_lossy()
+            ),
+            title: format!("Path alias \"{alias}\" shadows a package import"),
+            category: Some("tsconfig".to_string()),
+            detail: Some(format!(
+                "\"{alias}\" is a bare package-style specifier, so this alias can override an installed package or workspace package with the same import path."
+            )),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Prefer #internal/* or another dedicated namespace for app-local aliases so package imports stay unambiguous."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Warn),
+        }));
+    }
+
+    for left_index in 0..aliases.len() {
+        for right_index in left_index + 1..aliases.len() {
+            let left = &aliases[left_index];
+            let right = &aliases[right_index];
+            let Some((shadowing_alias, shadowed_alias)) =
+                determine_shadowing_alias_pair(left, right)
+            else {
+                continue;
+            };
+            if is_exact_specialization_of_wildcard_alias(shadowing_alias, shadowed_alias) {
+                continue;
+            }
+
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-paths-shadow-alias:{}:{shadowing_alias}:{shadowed_alias}",
+                    file_path.to_string_lossy()
+                ),
+                title: format!(
+                    "Path alias \"{shadowing_alias}\" shadows \"{shadowed_alias}\""
+                ),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "Both aliases can match the same import specifier, so TypeScript will prefer \"{shadowing_alias}\" and hide \"{shadowed_alias}\" for those imports."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Make overlapping aliases disjoint so imports keep a single obvious target."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Warn),
+            }));
+        }
+    }
+}
+
+fn collect_types_and_type_roots_findings(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    config_dir: &Path,
+    compiler_options: Option<&Map<String, Value>>,
+) -> io::Result<()> {
+    let Some(compiler_options) = compiler_options else {
+        return Ok(());
+    };
+
+    let types = parse_types_option(findings, file_path, compiler_options);
+    let type_roots = parse_type_roots_option(findings, file_path, compiler_options);
+
+    if let Some(type_roots) = type_roots.as_ref() {
+        for type_root in type_roots {
+            let resolved_type_root = resolve_path_with_backslash_support(config_dir, type_root);
+            if path_exists(&resolved_type_root) {
+                continue;
+            }
+
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-typeroots-missing:{}:{type_root}",
+                    file_path.to_string_lossy()
+                ),
+                title: "Configured typeRoots entry does not exist".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "compilerOptions.typeRoots includes \"{type_root}\", but the resolved path was not found."
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Create the missing types directory or remove stale typeRoots entries before TypeScript silently skips expected declarations."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Warn),
+            }));
+        }
+    }
+
+    match (types.as_ref(), type_roots.as_ref()) {
+        (Some(types), Some(type_roots)) => {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-types-typeroots-guidance:{}",
+                    file_path.to_string_lossy()
+                ),
+                title: "compilerOptions.types and typeRoots both narrow ambient type resolution"
+                    .to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "compilerOptions.types only includes {}, and compilerOptions.typeRoots only searches {}, so unlisted ambient packages outside those roots will be hidden from TypeScript.",
+                    format_string_list(types),
+                    format_string_list(type_roots)
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Keep both lists aligned with every global types package your runtime and tests rely on."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Warn),
+            }));
+        }
+        (Some(types), None) => {
+            let (title, detail, severity) = if types.is_empty() {
+                (
+                    "compilerOptions.types disables automatic @types inclusion".to_string(),
+                    "compilerOptions.types is set to [], so TypeScript will not auto-include any ambient @types packages.".to_string(),
+                    Severity::Warn,
+                )
+            } else {
+                (
+                    "compilerOptions.types limits ambient type packages".to_string(),
+                    format!(
+                        "compilerOptions.types only includes {}, so unlisted ambient @types packages will not be injected automatically.",
+                        format_string_list(types)
+                    ),
+                    Severity::Info,
+                )
+            };
+
+            findings.push(make_finding(FindingInput {
+                id: format!("tsconfig-types-guidance:{}", file_path.to_string_lossy()),
+                title,
+                category: Some("tsconfig".to_string()),
+                detail: Some(detail),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Keep this list in sync with every test and runtime package that should contribute global types."
+                        .to_string(),
+                ),
+                severity: Some(severity),
+            }));
+        }
+        (None, Some(type_roots)) => {
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-typeroots-guidance:{}",
+                    file_path.to_string_lossy()
+                ),
+                title: "compilerOptions.typeRoots disables default @types discovery".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "compilerOptions.typeRoots only searches {}, so TypeScript will stop using the default node_modules/@types lookup for this config.",
+                    format_string_list(type_roots)
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Include every required ambient types directory or remove typeRoots to restore default discovery."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Warn),
+            }));
+        }
+        (None, None) => {}
+    }
+
+    Ok(())
+}
+
+fn parse_types_option(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    compiler_options: &Map<String, Value>,
+) -> Option<Vec<String>> {
+    let Some(types_value) = compiler_options.get("types") else {
+        return None;
+    };
+    let Some(types) = types_value.as_array() else {
+        findings.push(make_finding(FindingInput {
+            id: format!("tsconfig-types-shape:{}", file_path.to_string_lossy()),
+            title: "\"compilerOptions.types\" must be an array of package names".to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(
+                "TypeScript expects compilerOptions.types to be an array of string package names."
+                    .to_string(),
+            ),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Rewrite compilerOptions.types as [\"node\", \"jest\"]-style package names or remove it."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return None;
+    };
+
+    let mut collected_types = Vec::new();
+    let mut has_invalid_entry = false;
+    for (index, value) in types.iter().enumerate() {
+        let Some(type_name) = value.as_str() else {
+            has_invalid_entry = true;
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-types-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "\"compilerOptions.types\" contains a non-string package name"
+                    .to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{} declares compilerOptions.types[{index}], but TypeScript expects a non-empty string package name.",
+                    file_path.to_string_lossy()
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Rewrite compilerOptions.types as [\"node\", \"jest\"]-style package names or remove it."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        };
+
+        if type_name.trim().is_empty() {
+            has_invalid_entry = true;
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-types-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "\"compilerOptions.types\" contains a non-string package name"
+                    .to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{} declares compilerOptions.types[{index}], but TypeScript expects a non-empty string package name.",
+                    file_path.to_string_lossy()
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Rewrite compilerOptions.types as [\"node\", \"jest\"]-style package names or remove it."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        }
+
+        collected_types.push(type_name.trim().to_string());
+    }
+
+    if has_invalid_entry {
+        return None;
+    }
+
+    Some(collected_types)
+}
+
+fn parse_type_roots_option(
+    findings: &mut Vec<Finding>,
+    file_path: &Path,
+    compiler_options: &Map<String, Value>,
+) -> Option<Vec<String>> {
+    let Some(type_roots_value) = compiler_options.get("typeRoots") else {
+        return None;
+    };
+    let Some(type_roots) = type_roots_value.as_array() else {
+        findings.push(make_finding(FindingInput {
+            id: format!("tsconfig-typeroots-shape:{}", file_path.to_string_lossy()),
+            title: "\"compilerOptions.typeRoots\" must be an array of directory paths"
+                .to_string(),
+            category: Some("tsconfig".to_string()),
+            detail: Some(
+                "TypeScript expects compilerOptions.typeRoots to be an array of string directory paths."
+                    .to_string(),
+            ),
+            file: Some(file_path.to_path_buf()),
+            fix_ids: Vec::new(),
+            fixable: false,
+            hint: Some(
+                "Rewrite compilerOptions.typeRoots as [\"./types\", \"./node_modules/@types\"]-style paths or remove it."
+                    .to_string(),
+            ),
+            severity: Some(Severity::Error),
+        }));
+        return None;
+    };
+
+    let mut collected_type_roots = Vec::new();
+    let mut has_invalid_entry = false;
+    for (index, value) in type_roots.iter().enumerate() {
+        let Some(type_root) = value.as_str() else {
+            has_invalid_entry = true;
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-typeroots-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "\"compilerOptions.typeRoots\" contains a non-string path".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{} declares compilerOptions.typeRoots[{index}], but TypeScript expects a non-empty string directory path.",
+                    file_path.to_string_lossy()
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Rewrite compilerOptions.typeRoots as [\"./types\", \"./node_modules/@types\"]-style paths or remove it."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        };
+
+        if type_root.trim().is_empty() {
+            has_invalid_entry = true;
+            findings.push(make_finding(FindingInput {
+                id: format!(
+                    "tsconfig-typeroots-entry:{}:{index}",
+                    file_path.to_string_lossy()
+                ),
+                title: "\"compilerOptions.typeRoots\" contains a non-string path".to_string(),
+                category: Some("tsconfig".to_string()),
+                detail: Some(format!(
+                    "{} declares compilerOptions.typeRoots[{index}], but TypeScript expects a non-empty string directory path.",
+                    file_path.to_string_lossy()
+                )),
+                file: Some(file_path.to_path_buf()),
+                fix_ids: Vec::new(),
+                fixable: false,
+                hint: Some(
+                    "Rewrite compilerOptions.typeRoots as [\"./types\", \"./node_modules/@types\"]-style paths or remove it."
+                        .to_string(),
+                ),
+                severity: Some(Severity::Error),
+            }));
+            continue;
+        }
+
+        collected_type_roots.push(type_root.trim().to_string());
+    }
+
+    if has_invalid_entry {
+        return None;
+    }
+
+    Some(collected_type_roots)
+}
+
 fn collect_include_exclude_pattern_findings(
     findings: &mut Vec<Finding>,
     file_path: &Path,
@@ -968,13 +1361,12 @@ fn collect_effective_tsconfig_input_files(
         effective_pattern_config.files.as_ref(),
         candidate_extensions,
     )?;
-    let mut exclude_eligible_files = if effective_pattern_config.include.is_some()
-        || effective_pattern_config.files.is_some()
-    {
-        BTreeSet::new()
-    } else {
-        collect_default_pattern_matches(base_dir, candidate_extensions, default_excluded_dirs)?
-    };
+    let mut exclude_eligible_files =
+        if effective_pattern_config.include.is_some() || effective_pattern_config.files.is_some() {
+            BTreeSet::new()
+        } else {
+            collect_default_pattern_matches(base_dir, candidate_extensions, default_excluded_dirs)?
+        };
 
     if let Some(include_field) = effective_pattern_config.include.as_ref() {
         for pattern in &include_field.values {
@@ -1040,8 +1432,7 @@ fn collect_output_source_roots(
                 continue;
             }
 
-            if let Some(source_root) =
-                resolve_pattern_source_root(&include_field.base_dir, pattern)
+            if let Some(source_root) = resolve_pattern_source_root(&include_field.base_dir, pattern)
             {
                 source_roots.insert(source_root);
             }
@@ -1555,7 +1946,8 @@ fn resolve_effective_pattern_config_inner(
     }
     visited.push(normalized_config_path);
 
-    let mut effective_config = match load_extended_tsconfig_document(config_path, config, visited)? {
+    let mut effective_config = match load_extended_tsconfig_document(config_path, config, visited)?
+    {
         ExtendedPatternConfigDocument::Loaded(parent_config_path, parent_config) => {
             resolve_effective_pattern_config_inner(&parent_config_path, &parent_config, visited)?
         }
@@ -1931,6 +2323,159 @@ fn select_effective_tsconfig_target(
     }
 
     Ok(first_string_target)
+}
+
+fn determine_shadowing_alias_pair<'a>(left: &'a str, right: &'a str) -> Option<(&'a str, &'a str)> {
+    if !aliases_overlap(left, right) {
+        return None;
+    }
+
+    let left_specificity = alias_specificity(left);
+    let right_specificity = alias_specificity(right);
+    if left_specificity > right_specificity {
+        return Some((left, right));
+    }
+    if right_specificity > left_specificity {
+        return Some((right, left));
+    }
+
+    None
+}
+
+fn is_exact_specialization_of_wildcard_alias(shadowing_alias: &str, shadowed_alias: &str) -> bool {
+    !shadowing_alias.contains('*')
+        && shadowed_alias.contains('*')
+        && wildcard_pattern_matches(shadowing_alias, shadowed_alias)
+}
+
+fn aliases_overlap(left: &str, right: &str) -> bool {
+    match (left.contains('*'), right.contains('*')) {
+        (false, false) => left == right,
+        (false, true) => wildcard_pattern_matches(left, right),
+        (true, false) => wildcard_pattern_matches(right, left),
+        (true, true) => wildcard_aliases_overlap(left, right),
+    }
+}
+
+fn wildcard_aliases_overlap(left: &str, right: &str) -> bool {
+    if left.matches('*').count() != 1 || right.matches('*').count() != 1 {
+        return wildcard_overlap_samples(left)
+            .into_iter()
+            .chain(wildcard_overlap_samples(right))
+            .any(|candidate| {
+                wildcard_pattern_matches(&candidate, left)
+                    && wildcard_pattern_matches(&candidate, right)
+            });
+    }
+
+    let (left_prefix, left_suffix) = split_wildcard_alias(left);
+    let (right_prefix, right_suffix) = split_wildcard_alias(right);
+    let Some(merged_prefix) = merge_prefixes(left_prefix, right_prefix) else {
+        return false;
+    };
+    let Some(merged_suffix) = merge_suffixes(left_suffix, right_suffix) else {
+        return false;
+    };
+
+    ["", "shadow", "shadow/nested"]
+        .into_iter()
+        .map(|middle| format!("{merged_prefix}{middle}{merged_suffix}"))
+        .any(|candidate| {
+            wildcard_pattern_matches(&candidate, left)
+                && wildcard_pattern_matches(&candidate, right)
+        })
+}
+
+fn wildcard_overlap_samples(pattern: &str) -> Vec<String> {
+    if !pattern.contains('*') {
+        return vec![pattern.to_string()];
+    }
+
+    ["shadow", "shadow/nested"]
+        .into_iter()
+        .map(|replacement| pattern.replace('*', replacement))
+        .collect()
+}
+
+fn split_wildcard_alias(pattern: &str) -> (&str, &str) {
+    let wildcard_index = pattern.find('*').unwrap_or(pattern.len());
+    (&pattern[..wildcard_index], &pattern[wildcard_index + 1..])
+}
+
+fn merge_prefixes<'a>(left: &'a str, right: &'a str) -> Option<&'a str> {
+    if left.starts_with(right) {
+        return Some(left);
+    }
+    if right.starts_with(left) {
+        return Some(right);
+    }
+
+    None
+}
+
+fn merge_suffixes<'a>(left: &'a str, right: &'a str) -> Option<&'a str> {
+    if left.ends_with(right) {
+        return Some(left);
+    }
+    if right.ends_with(left) {
+        return Some(right);
+    }
+
+    None
+}
+
+fn alias_specificity(alias: &str) -> (usize, usize, usize) {
+    let wildcard_count = alias.matches('*').count();
+    let fixed_length = alias.chars().filter(|character| *character != '*').count();
+    let separator_count = alias
+        .chars()
+        .filter(|character| matches!(character, '/' | '\\'))
+        .count();
+
+    (
+        usize::from(wildcard_count == 0),
+        fixed_length + separator_count,
+        alias.len(),
+    )
+}
+
+fn is_package_style_alias(alias: &str) -> bool {
+    let alias = alias.trim_end_matches('*').trim_end_matches(['/', '\\']);
+    if alias.is_empty()
+        || alias.starts_with('#')
+        || alias.starts_with('.')
+        || alias.starts_with('/')
+        || alias.starts_with('\\')
+        || has_url_like_prefix(alias)
+    {
+        return false;
+    }
+
+    if let Some(rest) = alias.strip_prefix('@') {
+        let segments = rest
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        return segments.len() >= 2
+            && is_package_name_segment(segments[0])
+            && is_package_name_segment(segments[1]);
+    }
+
+    let Some(first_segment) = alias.split('/').next() else {
+        return false;
+    };
+    is_package_name_segment(first_segment)
+}
+
+fn is_package_name_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+        })
+}
+
+fn format_string_list(values: &[String]) -> String {
+    serde_json::to_string(values).unwrap_or_else(|_| "[]".to_string())
 }
 
 fn alias_target_exists(base_dir: &Path, target: &str) -> io::Result<bool> {

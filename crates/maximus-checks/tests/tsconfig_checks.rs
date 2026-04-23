@@ -468,6 +468,285 @@ fn tsconfig_check_treats_paths_targets_as_fallback_candidates() {
 }
 
 #[test]
+fn tsconfig_check_reports_path_alias_shadowing_contracts() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("src/shims/react.ts"),
+        "export const reactShim = true;\n",
+    );
+    write(
+        fixture.path().join("src/vendor/pkg/index.ts"),
+        "export const pkg = true;\n",
+    );
+    write(
+        fixture.path().join("src/app/index.ts"),
+        "export const app = true;\n",
+    );
+    write(
+        fixture.path().join("src/testing/index.ts"),
+        "export const testing = true;\n",
+    );
+    write(
+        fixture.path().join("src/utils/client.ts"),
+        "export const client = true;\n",
+    );
+    write(
+        fixture.path().join("src/hash/internal.ts"),
+        "export const internal = true;\n",
+    );
+    write(
+        fixture.path().join("tsconfig.json"),
+        r##"
+        {
+          "compilerOptions": {
+            "baseUrl": ".",
+            "paths": {
+              "react": ["./src/shims/react.ts"],
+              "@scope/pkg/*": ["./src/vendor/pkg/*"],
+              "@app/*": ["./src/app/*"],
+              "@app/testing": ["./src/testing/index.ts"],
+              "@app/utils": ["./src/utils/client.ts"],
+              "#internal/*": ["./src/hash/*"]
+            }
+          }
+        }
+        "##,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+    let tsconfig_path = fixture.path().join("tsconfig.json");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-paths-shadow-package:{}:react",
+            tsconfig_path.to_string_lossy()
+        ),
+        Severity::Warn,
+        "Path alias \"react\" shadows a package import",
+        "\"react\" is a bare package-style specifier, so this alias can override an installed package or workspace package with the same import path.",
+        "Prefer #internal/* or another dedicated namespace for app-local aliases so package imports stay unambiguous.",
+        Some(tsconfig_path.clone()),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-paths-shadow-package:{}:@scope/pkg/*",
+            tsconfig_path.to_string_lossy()
+        ),
+        Severity::Warn,
+        "Path alias \"@scope/pkg/*\" shadows a package import",
+        "\"@scope/pkg/*\" is a bare package-style specifier, so this alias can override an installed package or workspace package with the same import path.",
+        "Prefer #internal/* or another dedicated namespace for app-local aliases so package imports stay unambiguous.",
+        Some(tsconfig_path.clone()),
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            finding.id
+                != format!(
+                    "tsconfig-paths-shadow-alias:{}:@app/testing:@app/*",
+                    tsconfig_path.to_string_lossy()
+                )
+        }),
+        "exact aliases should be allowed to specialize a broader wildcard alias"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            finding.id
+                != format!(
+                    "tsconfig-paths-shadow-alias:{}:@app/utils:@app/*",
+                    tsconfig_path.to_string_lossy()
+                )
+        }),
+        "exact aliases should be allowed to specialize a broader wildcard alias"
+    );
+    assert!(
+        outcome.findings.iter().all(|finding| {
+            finding.id
+                != format!(
+                    "tsconfig-paths-shadow-package:{}:#internal/*",
+                    tsconfig_path.to_string_lossy()
+                )
+        }),
+        "#-prefixed aliases should not be treated as package imports"
+    );
+}
+
+#[test]
+fn tsconfig_check_reports_types_and_typeroots_contracts() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("types-only/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "types": ["node", "jest"]
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("empty-types/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "types": []
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("type-roots/types/custom/index.d.ts"),
+        "export {};\n",
+    );
+    write(
+        fixture.path().join("type-roots/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "typeRoots": ["./types", "./missing-types"]
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("types-and-roots/types/node/index.d.ts"),
+        "export {};\n",
+    );
+    write(
+        fixture.path().join("types-and-roots/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "types": ["node"],
+            "typeRoots": ["./types"]
+          }
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("invalid/tsconfig.json"),
+        r#"
+        {
+          "compilerOptions": {
+            "types": "node",
+            "typeRoots": [42, ""]
+          }
+        }
+        "#,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    let types_only_path = fixture.path().join("types-only/tsconfig.json");
+    assert_has_finding(
+        &outcome.findings,
+        &format!("tsconfig-types-guidance:{}", types_only_path.to_string_lossy()),
+        Severity::Info,
+        "compilerOptions.types limits ambient type packages",
+        "compilerOptions.types only includes [\"node\",\"jest\"], so unlisted ambient @types packages will not be injected automatically.",
+        "Keep this list in sync with every test and runtime package that should contribute global types.",
+        Some(types_only_path),
+    );
+
+    let empty_types_path = fixture.path().join("empty-types/tsconfig.json");
+    assert_has_finding(
+        &outcome.findings,
+        &format!("tsconfig-types-guidance:{}", empty_types_path.to_string_lossy()),
+        Severity::Warn,
+        "compilerOptions.types disables automatic @types inclusion",
+        "compilerOptions.types is set to [], so TypeScript will not auto-include any ambient @types packages.",
+        "Keep this list in sync with every test and runtime package that should contribute global types.",
+        Some(empty_types_path),
+    );
+
+    let type_roots_path = fixture.path().join("type-roots/tsconfig.json");
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-typeroots-missing:{}:./missing-types",
+            type_roots_path.to_string_lossy()
+        ),
+        Severity::Warn,
+        "Configured typeRoots entry does not exist",
+        "compilerOptions.typeRoots includes \"./missing-types\", but the resolved path was not found.",
+        "Create the missing types directory or remove stale typeRoots entries before TypeScript silently skips expected declarations.",
+        Some(type_roots_path.clone()),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-typeroots-guidance:{}",
+            type_roots_path.to_string_lossy()
+        ),
+        Severity::Warn,
+        "compilerOptions.typeRoots disables default @types discovery",
+        "compilerOptions.typeRoots only searches [\"./types\",\"./missing-types\"], so TypeScript will stop using the default node_modules/@types lookup for this config.",
+        "Include every required ambient types directory or remove typeRoots to restore default discovery.",
+        Some(type_roots_path),
+    );
+
+    let combined_path = fixture.path().join("types-and-roots/tsconfig.json");
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-types-typeroots-guidance:{}",
+            combined_path.to_string_lossy()
+        ),
+        Severity::Warn,
+        "compilerOptions.types and typeRoots both narrow ambient type resolution",
+        "compilerOptions.types only includes [\"node\"], and compilerOptions.typeRoots only searches [\"./types\"], so unlisted ambient packages outside those roots will be hidden from TypeScript.",
+        "Keep both lists aligned with every global types package your runtime and tests rely on.",
+        Some(combined_path),
+    );
+
+    let invalid_path = fixture.path().join("invalid/tsconfig.json");
+    assert_has_finding(
+        &outcome.findings,
+        &format!("tsconfig-types-shape:{}", invalid_path.to_string_lossy()),
+        Severity::Error,
+        "\"compilerOptions.types\" must be an array of package names",
+        "TypeScript expects compilerOptions.types to be an array of string package names.",
+        "Rewrite compilerOptions.types as [\"node\", \"jest\"]-style package names or remove it.",
+        Some(invalid_path.clone()),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-typeroots-entry:{}:0",
+            invalid_path.to_string_lossy()
+        ),
+        Severity::Error,
+        "\"compilerOptions.typeRoots\" contains a non-string path",
+        &format!(
+            "{} declares compilerOptions.typeRoots[0], but TypeScript expects a non-empty string directory path.",
+            invalid_path.to_string_lossy()
+        ),
+        "Rewrite compilerOptions.typeRoots as [\"./types\", \"./node_modules/@types\"]-style paths or remove it.",
+        Some(invalid_path.clone()),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-typeroots-entry:{}:1",
+            invalid_path.to_string_lossy()
+        ),
+        Severity::Error,
+        "\"compilerOptions.typeRoots\" contains a non-string path",
+        &format!(
+            "{} declares compilerOptions.typeRoots[1], but TypeScript expects a non-empty string directory path.",
+            invalid_path.to_string_lossy()
+        ),
+        "Rewrite compilerOptions.typeRoots as [\"./types\", \"./node_modules/@types\"]-style paths or remove it.",
+        Some(invalid_path),
+    );
+}
+
+#[test]
 fn tsconfig_check_reports_empty_include_and_useless_exclude_patterns() {
     let fixture = TempDir::new().expect("temp dir should exist");
 
@@ -1073,7 +1352,9 @@ fn tsconfig_check_reports_output_path_overlap_contracts() {
     );
 
     write(
-        fixture.path().join("files-with-unmatched-include/tsconfig.json"),
+        fixture
+            .path()
+            .join("files-with-unmatched-include/tsconfig.json"),
         r#"
         {
           "compilerOptions": {
@@ -1364,7 +1645,9 @@ fn tsconfig_check_inherits_pattern_fields_and_reports_invalid_pattern_entries() 
         "#,
     );
     write(
-        fixture.path().join("invalid-files-directory/src/index.d.ts"),
+        fixture
+            .path()
+            .join("invalid-files-directory/src/index.d.ts"),
         "export declare const ok: true;\n",
     );
     write(
