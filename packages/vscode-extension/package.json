@@ -1,0 +1,47 @@
+{
+  "name": "maximus-vscode-extension",
+  "displayName": "Maximus",
+  "description": "Output channel first VS Code draft for the Maximus CLI.",
+  "version": "0.1.0",
+  "publisher": "jeremydev87",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:maximus.runAudit",
+    "onCommand:maximus.runDoctor",
+    "onCommand:maximus.runFix"
+  ],
+  "main": "./src/extension.ts",
+  "contributes": {
+    "commands": [
+      {
+        "command": "maximus.runAudit",
+        "title": "Maximus: Run Audit"
+      },
+      {
+        "command": "maximus.runDoctor",
+        "title": "Maximus: Run Doctor"
+      },
+      {
+        "command": "maximus.runFix",
+        "title": "Maximus: Run Fix"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --check ./src/extension.ts && node --test ./test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeremyDev87/maximus.git"
+  },
+  "homepage": "https://github.com/JeremyDev87/maximus#readme",
+  "bugs": {
+    "url": "https://github.com/JeremyDev87/maximus/issues"
+  }
+}
