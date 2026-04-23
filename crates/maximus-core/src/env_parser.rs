@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use indexmap::IndexMap;
 use crate::text_order::locale_compare_like;
@@ -39,8 +39,7 @@ pub fn parse_env(text: &str, label: Option<&str>) -> ParsedEnv {
     let mut entries = Vec::new();
     let mut duplicates = Vec::new();
     let mut invalid_lines = Vec::new();
-    let mut values = IndexMap::new();
-    let mut first_seen = BTreeMap::new();
+    let mut values: IndexMap<String, EnvEntry> = IndexMap::new();
     let mut order = Vec::new();
 
     for (index, line) in text.split('\n').enumerate() {
@@ -81,14 +80,13 @@ pub fn parse_env(text: &str, label: Option<&str>) -> ParsedEnv {
             line: index + 1,
         };
 
-        if let Some(first_line) = first_seen.get(key) {
+        if let Some(previous_entry) = values.get(key) {
             duplicates.push(EnvDuplicate {
                 key: key.to_string(),
-                first_line: *first_line,
+                first_line: previous_entry.line,
                 second_line: index + 1,
             });
         } else {
-            first_seen.insert(key.to_string(), index + 1);
             order.push(key.to_string());
         }
 
