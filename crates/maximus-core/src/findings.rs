@@ -3,6 +3,9 @@ use serde::Serialize;
 use crate::models::{AuditResult, AuditSummary, Finding, FixPlan, Severity, StructureReport};
 use crate::text_order::locale_compare_like;
 
+pub const JSON_GENERATOR: &str = "maximus";
+pub const JSON_SCHEMA_VERSION: &str = "1";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FindingInput {
     pub id: String,
@@ -19,6 +22,8 @@ pub struct FindingInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SerializableAuditResult {
+    pub schema_version: &'static str,
+    pub generator: &'static str,
     pub root_dir: std::path::PathBuf,
     pub summary: AuditSummary,
     pub structure: StructureReport,
@@ -139,6 +144,8 @@ pub fn summarize_findings(
 
 pub fn serialize_audit_result(result: &AuditResult) -> SerializableAuditResult {
     SerializableAuditResult {
+        schema_version: JSON_SCHEMA_VERSION,
+        generator: JSON_GENERATOR,
         root_dir: result.root_dir.clone(),
         summary: result.summary.clone(),
         structure: result.structure.clone(),

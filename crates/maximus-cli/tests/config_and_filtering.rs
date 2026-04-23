@@ -28,6 +28,8 @@ fn root_maximus_config_applies_check_defaults() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
 
     let value = parse_json(&output);
+    assert_eq!(value["schemaVersion"], "1");
+    assert_eq!(value["generator"], "maximus");
     let findings = value["findings"]
         .as_array()
         .expect("findings should be an array");
