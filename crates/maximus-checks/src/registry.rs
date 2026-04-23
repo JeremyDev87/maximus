@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use maximus_core::{
     discover_project, discover_project_with_ignore_root, parse_jsonc, read_text_if_exists,
@@ -7,9 +9,13 @@ use maximus_core::{
     ConfigSeverity, MaximusConfig, PlannedFix, ProjectDirectory, ProjectFile, ProjectSnapshot,
     Severity,
 };
+use serde_json::{Map, Value};
 
 use crate::check_outcome::CheckOutcome;
+use crate::jsx_config::run_jsx_config_check;
 use crate::lockfiles::run_lockfiles_check_with_ignore_root;
+use crate::module_system::run_module_system_check;
+use crate::monorepo_tsconfig::run_monorepo_tsconfig_check;
 use crate::package_entrypoints::run_package_entrypoints_check;
 use crate::{
     build_structure_report, run_config_duplicate_check, run_env_check, run_eslint_prettier_check,
@@ -48,6 +54,18 @@ const REGISTERED_CHECKS: &[RegisteredCheck] = &[
         run: run_tsconfig_check_registered,
     },
     RegisteredCheck {
+        id: "module-system",
+        run: run_module_system_check_registered,
+    },
+    RegisteredCheck {
+        id: "monorepo-tsconfig",
+        run: run_monorepo_tsconfig_check_registered,
+    },
+    RegisteredCheck {
+        id: "jsx-config",
+        run: run_jsx_config_check_registered,
+    },
+    RegisteredCheck {
         id: "lockfiles",
         run: run_lockfiles_check_registered,
     },
@@ -63,6 +81,9 @@ pub fn registered_check_ids() -> &'static [&'static str] {
         "env",
         "eslint-prettier",
         "tsconfig",
+        "module-system",
+        "monorepo-tsconfig",
+        "jsx-config",
         "lockfiles",
         "package-entrypoints",
     ]
@@ -186,9 +207,151 @@ pub(crate) fn package_file_for_directory(directory: &ProjectDirectory) -> Option
         .find(|file| file.kind == maximus_core::FileKind::Package)
 }
 
+pub(crate) fn tsconfig_entry_file_for_directory(
+    directory: &ProjectDirectory,
+) -> Option<&ProjectFile> {
+    directory
+        .files_by_kind
+        .get(&maximus_core::FileKind::Tsconfig)
+        .and_then(|files| {
+            files
+                .iter()
+                .find(|file| file.name == "tsconfig.json" || file.name == "jsconfig.json")
+        })
+}
+
 pub(crate) fn read_package_json(file_path: &Path) -> Option<serde_json::Value> {
     let text = read_text_if_exists(file_path).ok().flatten()?;
     parse_jsonc::<serde_json::Value>(&text, &file_path.to_string_lossy()).ok()
+}
+
+pub(crate) fn read_effective_compiler_options(
+    file_path: &Path,
+) -> io::Result<Option<Map<String, Value>>> {
+    let Some(config) = read_tsconfig_json(file_path)? else {
+        return Ok(None);
+    };
+    let mut visited = HashSet::new();
+    read_effective_compiler_options_inner(file_path, &config, &mut visited)
+}
+
+fn read_effective_compiler_options_inner(
+    config_path: &Path,
+    config: &Value,
+    visited: &mut HashSet<PathBuf>,
+) -> io::Result<Option<Map<String, Value>>> {
+    let normalized_path = normalize_tsconfig_path(config_path);
+    if !visited.insert(normalized_path) {
+        return Ok(None);
+    }
+
+    let mut compiler_options = match load_extended_tsconfig_document(config_path, config, visited)?
+    {
+        Some((parent_config_path, parent_config)) => {
+            read_effective_compiler_options_inner(&parent_config_path, &parent_config, visited)?
+                .unwrap_or_default()
+        }
+        None => Map::new(),
+    };
+
+    if let Some(config_options) = config.get("compilerOptions").and_then(Value::as_object) {
+        for (key, value) in config_options {
+            compiler_options.insert(key.clone(), value.clone());
+        }
+    }
+
+    Ok(Some(compiler_options))
+}
+
+fn read_tsconfig_json(file_path: &Path) -> io::Result<Option<Value>> {
+    let Some(text) = read_text_if_exists(file_path)? else {
+        return Ok(None);
+    };
+
+    Ok(parse_jsonc::<Value>(&text, &file_path.to_string_lossy()).ok())
+}
+
+fn load_extended_tsconfig_document(
+    config_path: &Path,
+    config: &Value,
+    visited: &HashSet<PathBuf>,
+) -> io::Result<Option<(PathBuf, Value)>> {
+    let Some(extends_path) = config.get("extends").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(parent_config_path) = resolve_extends_config_path(
+        config_path.parent().unwrap_or_else(|| Path::new(".")),
+        extends_path,
+    ) else {
+        return Ok(None);
+    };
+
+    if visited.contains(&normalize_tsconfig_path(&parent_config_path)) {
+        return Ok(None);
+    }
+
+    let Some(parent_config) = read_tsconfig_json(&parent_config_path)? else {
+        return Ok(None);
+    };
+
+    Ok(Some((parent_config_path, parent_config)))
+}
+
+fn resolve_extends_config_path(base_dir: &Path, extends_path: &str) -> Option<PathBuf> {
+    let extends_candidate = Path::new(extends_path);
+    let is_local_extends = extends_candidate.is_absolute()
+        || extends_path.starts_with("./")
+        || extends_path.starts_with("../")
+        || extends_path.starts_with(".\\")
+        || extends_path.starts_with("..\\");
+
+    if is_local_extends {
+        return resolve_tsconfig_candidate(&base_dir.join(extends_path.replace('\\', "/")))
+            .ok()
+            .flatten();
+    }
+
+    for ancestor in base_dir.ancestors() {
+        let candidate = ancestor.join("node_modules").join(extends_path);
+        if let Ok(Some(resolved)) = resolve_tsconfig_candidate(&candidate) {
+            return Some(resolved);
+        }
+    }
+
+    None
+}
+
+fn resolve_tsconfig_candidate(candidate: &Path) -> io::Result<Option<PathBuf>> {
+    if candidate.exists() {
+        let metadata = fs::metadata(candidate)?;
+        if metadata.is_dir() {
+            let directory_target = candidate.join("tsconfig.json");
+            if directory_target.exists() {
+                return Ok(Some(directory_target));
+            }
+            return Ok(None);
+        }
+
+        return Ok(Some(candidate.to_path_buf()));
+    }
+
+    if candidate.extension().is_none() {
+        let file_target = candidate.with_extension("json");
+        if file_target.exists() {
+            return Ok(Some(file_target));
+        }
+    }
+
+    let directory_target = candidate.join("tsconfig.json");
+    if directory_target.exists() {
+        return Ok(Some(directory_target));
+    }
+
+    Ok(None)
+}
+
+fn normalize_tsconfig_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub(crate) fn has_object_key(value: &serde_json::Value, key: &str) -> bool {
@@ -235,6 +398,30 @@ fn run_tsconfig_check_registered(
     _ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
     run_tsconfig_check(project)
+}
+
+fn run_module_system_check_registered(
+    project: &ProjectSnapshot,
+    _config: &MaximusConfig,
+    _ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    run_module_system_check(project)
+}
+
+fn run_monorepo_tsconfig_check_registered(
+    project: &ProjectSnapshot,
+    _config: &MaximusConfig,
+    _ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    run_monorepo_tsconfig_check(project)
+}
+
+fn run_jsx_config_check_registered(
+    project: &ProjectSnapshot,
+    _config: &MaximusConfig,
+    _ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    run_jsx_config_check(project)
 }
 
 fn run_lockfiles_check_registered(
