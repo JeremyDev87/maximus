@@ -4,6 +4,9 @@
   "description": "Canonical Rust runtime launcher for the Maximus CLI.",
   "author": "JeremyDev87",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "bin": {
     "maximus": "./bin/maximus.js"
   },
