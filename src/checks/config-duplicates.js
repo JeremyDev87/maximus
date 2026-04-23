@@ -50,8 +50,10 @@ export async function runConfigDuplicateCheck(project) {
           severity: "error",
           title: "Legacy and flat ESLint configs coexist",
           file: eslintFiles[0]?.path ?? null,
-          detail: "ESLint may resolve different config systems depending on invocation and toolchain.",
-          hint: "Pick either flat config (eslint.config.*) or legacy .eslintrc.* in the same directory.",
+          detail:
+            "This directory contains both legacy .eslintrc.* files and flat eslint.config.* files, so ESLint can resolve different rule sets depending on the entry point.",
+          hint:
+            "Migrate to eslint.config.* as the single source of truth, then remove the legacy .eslintrc.* files after the new config fully replaces them.",
         }),
       );
     }
