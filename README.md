@@ -87,6 +87,7 @@ Findings
 
 ## GitHub Action
 
+<!-- release-docs:start -->
 릴리즈 태그 이후에는 같은 npm wrapper 진입점을 GitHub Action에서도 그대로 사용합니다.
 
 ```yaml
@@ -100,9 +101,11 @@ Findings
 
 - `command`: `audit`, `doctor`, `fix`
 - `path`: 검사할 프로젝트 경로, 기본값 `.`
-- `<release-tag>`: publish된 릴리즈 태그로 바꿔 넣어야 합니다. 예: `v0.1.0`
+- `registry-url`: pre-release smoke나 사설 registry 검증이 필요할 때만 쓰는 optional npm registry override
+- `release-tag`: publish된 릴리즈 태그를 넣으세요. 예: `v0.1.0`
 
 유지보수자가 실제 alpha/stable 릴리즈를 준비하거나 같은 태그를 안전하게 재실행할 때는 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)을 기준으로 진행합니다. Release Drafter는 `master`에서 draft notes만 갱신하며, 실제 publish는 tag-driven release workflow만 담당합니다.
+<!-- release-docs:end -->
 
 ## 로컬 개발
 

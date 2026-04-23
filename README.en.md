@@ -87,6 +87,7 @@ Findings
 
 ## GitHub Action
 
+<!-- release-docs:start -->
 After release tags are published, GitHub Actions use the same npm-wrapper entrypoint as well.
 
 ```yaml
@@ -100,9 +101,11 @@ Default inputs:
 
 - `command`: `audit`, `doctor`, `fix`
 - `path`: project path to inspect, default `.`
-- `<release-tag>`: replace this with a published release tag, for example `v0.1.0`
+- `registry-url`: optional npm registry override for pre-release smoke or private registry validation
+- `release-tag`: replace this with a published release tag, for example `v0.1.0`
 
 Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication stays in the tag-driven release workflow.
+<!-- release-docs:end -->
 
 ## Local Development
 

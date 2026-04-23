@@ -1,0 +1,41 @@
+name: release-docs
+
+on:
+  push:
+    paths:
+      - "README.md"
+      - "README.en.md"
+      - "action.yml"
+      - "package.json"
+      - "scripts/update-release-docs.mjs"
+      - ".github/workflows/release-docs.yml"
+  pull_request:
+    paths:
+      - "README.md"
+      - "README.en.md"
+      - "action.yml"
+      - "package.json"
+      - "scripts/update-release-docs.mjs"
+      - ".github/workflows/release-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-release-docs:
+    name: Update release docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Run release docs update script
+        run: node ./scripts/update-release-docs.mjs --check
