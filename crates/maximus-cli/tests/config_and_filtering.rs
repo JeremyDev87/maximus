@@ -459,6 +459,440 @@ fn config_glob_ignore_and_severity_overrides_are_applied() {
 }
 
 #[test]
+fn config_ignore_patterns_alias_applies_to_discovery() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write_tsconfig_conflict_fixture(&fixture.path().join("generated"));
+    write(
+        fixture.path().join("maximus.config.json"),
+        r#"{ "ignorePatterns": ["generated"], "checks": { "only": ["tsconfig"] } }"#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "ignorePatterns should suppress generated findings: {findings:?}"
+    );
+}
+
+#[test]
+fn maximusignore_applies_to_discovery_without_config_file() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write_tsconfig_conflict_fixture(&fixture.path().join("generated"));
+    write(fixture.path().join(".maximusignore"), "generated/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        ".maximusignore should suppress generated findings: {findings:?}"
+    );
+}
+
+#[test]
+fn ancestor_gitignore_applies_when_auditing_nested_target() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let target = repo.join("packages/web");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&target.join("generated"));
+    write(repo.join(".gitignore"), "packages/web/generated/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            target.to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "ancestor .gitignore should suppress generated findings: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_root_and_nested_config_relative_patterns_are_combined() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let target = repo.join("packages/web");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&target.join("generated"));
+    write_tsconfig_conflict_fixture(&target.join("local/generated"));
+    write(repo.join(".gitignore"), "packages/web/generated/\n");
+    write(
+        target.join("maximus.config.json"),
+        r#"{ "ignorePatterns": ["local/generated"], "checks": { "only": ["tsconfig"] } }"#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", target.to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "root .gitignore and nested config ignorePatterns should both apply: {findings:?}"
+    );
+}
+
+#[test]
+fn nested_gitignore_bare_pattern_applies_when_auditing_inside_ignored_directory() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let target = repo.join("packages/web/generated/sub");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&target);
+    write(repo.join("packages/web/.gitignore"), "generated\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            target.to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "nested .gitignore bare pattern should suppress direct child audit target: {findings:?}"
+    );
+}
+
+#[test]
+fn nested_config_bare_ignore_applies_when_auditing_inside_ignored_directory() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let config_root = repo.join("packages/web");
+    let target = config_root.join("generated/sub");
+    write_tsconfig_conflict_fixture(&target);
+    write(
+        config_root.join("maximus.config.json"),
+        r#"{ "ignore": ["generated"], "checks": { "only": ["tsconfig"] } }"#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", target.to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "nested config bare ignore should suppress direct child audit target: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_patterns_apply_to_lockfiles_check_traversal() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(fixture.path().join("ignored/package-lock.json"), "{}\n");
+    write(
+        fixture.path().join("ignored/yarn.lock"),
+        "# yarn lockfile v1\n",
+    );
+    write(fixture.path().join(".gitignore"), "ignored/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "lockfiles",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        ".gitignore should suppress ignored lockfile findings: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_patterns_do_not_hide_env_check_inputs() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(fixture.path().join(".env.local"), "SECRET=local\n");
+    write(fixture.path().join(".gitignore"), ".env.local\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("env-example-missing:"))
+        }),
+        ".gitignore should not remove env files from env contract checks: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_patterns_do_not_hide_tracked_env_check_inputs() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(fixture.path().join(".env"), "SECRET=tracked\n");
+    write(fixture.path().join(".gitignore"), ".env\n");
+    run_git(fixture.path(), &["init"]);
+    run_git(fixture.path(), &["add", "-f", ".env"]);
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("env-gitignore:"))
+        }),
+        "tracked env files ignored by .gitignore should still reach the tracked-file guard: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_escaped_leading_bang_matches_literal_path() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&fixture.path().join("!generated"));
+    write_tsconfig_conflict_fixture(&fixture.path().join("generated"));
+    write(fixture.path().join(".gitignore"), "\\!generated/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    let finding = findings[0]
+        .as_object()
+        .expect("finding should be an object");
+    assert!(
+        finding_field(finding, "file").contains("generated/tsconfig.json"),
+        "escaped bang should suppress literal !generated only: {findings:?}"
+    );
+    assert!(
+        !finding_field(finding, "file").contains("!generated/tsconfig.json"),
+        "escaped bang should not scan literal !generated: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_anchored_root_pattern_does_not_suppress_nested_target() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let target = repo.join("packages/web");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&target.join("generated"));
+    write(repo.join(".gitignore"), "/generated/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            target.to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        )
+        .starts_with("tsconfig-import-conflict:"),
+        "anchored root .gitignore should not suppress nested generated findings: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_directory_only_file_pattern_does_not_suppress_matching_file() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(fixture.path());
+    write(fixture.path().join(".gitignore"), "tsconfig.json/\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        )
+        .starts_with("tsconfig-import-conflict:"),
+        "directory-only .gitignore file pattern should not suppress a file: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_leading_space_pattern_does_not_suppress_matching_file() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(fixture.path());
+    write(fixture.path().join(".gitignore"), " tsconfig.json\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "tsconfig",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        )
+        .starts_with("tsconfig-import-conflict:"),
+        "leading-space .gitignore pattern should not suppress tsconfig.json: {findings:?}"
+    );
+}
+
+#[test]
 fn config_ignore_applies_to_lockfiles_check_traversal() {
     let fixture = TempDir::new().expect("temp dir should exist");
     write(fixture.path().join("ignored/package-lock.json"), "{}\n");
@@ -799,6 +1233,16 @@ fn write(path: impl AsRef<Path>, content: &str) {
     }
 
     fs::write(path, content).expect("fixture file should write");
+}
+
+fn run_git(root: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .expect("git should run");
+    assert!(output.status.success(), "{output:?}");
 }
 
 fn parse_json(output: &Output) -> Value {

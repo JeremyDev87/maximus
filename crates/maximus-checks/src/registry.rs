@@ -153,10 +153,11 @@ pub fn audit_project_with_config_root(
     config: &MaximusConfig,
     ignore_root: &Path,
 ) -> io::Result<AuditedProject> {
-    let project = if config.ignore.is_empty() {
+    let ignored_patterns = config.effective_ignore_patterns();
+    let project = if ignored_patterns.is_empty() {
         discover_project(root_dir)?
     } else {
-        discover_project_with_ignore_root(root_dir, &config.ignore, ignore_root)?
+        discover_project_with_ignore_root(root_dir, &ignored_patterns, ignore_root)?
     };
     let mut outcome = run_registered_checks_with_config_root(&project, config, ignore_root)?;
     apply_severity_overrides(&mut outcome.findings, &config.severity);
@@ -390,9 +391,19 @@ fn run_config_duplicate_check_registered(
 
 fn run_env_check_registered(
     project: &ProjectSnapshot,
-    _config: &MaximusConfig,
-    _ignore_root: &Path,
+    config: &MaximusConfig,
+    ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
+    if !config.gitignore_patterns.is_empty() {
+        let non_git_patterns = config.non_git_ignore_patterns();
+        let env_project = if non_git_patterns.is_empty() {
+            discover_project(&project.root_dir)?
+        } else {
+            discover_project_with_ignore_root(&project.root_dir, &non_git_patterns, ignore_root)?
+        };
+        return run_env_check(&env_project);
+    }
+
     run_env_check(project)
 }
 
@@ -441,7 +452,8 @@ fn run_lockfiles_check_registered(
     config: &MaximusConfig,
     ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
-    run_lockfiles_check_with_ignore_root(project, &config.ignore, ignore_root)
+    let ignored_patterns = config.effective_ignore_patterns();
+    run_lockfiles_check_with_ignore_root(project, &ignored_patterns, ignore_root)
 }
 
 fn run_package_entrypoints_check_registered(

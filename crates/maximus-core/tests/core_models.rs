@@ -243,6 +243,55 @@ fn discovery_applies_glob_ignore_patterns_to_matching_files() {
 }
 
 #[test]
+fn discovery_applies_gitignore_style_negated_patterns_in_order() {
+    let fixture = temp_fixture();
+    std::fs::write(fixture.path().join(".env"), "API_TOKEN=secret\n").unwrap();
+    std::fs::write(fixture.path().join(".env.example"), "API_TOKEN=\n").unwrap();
+
+    let snapshot = discover_project_with_ignore(
+        fixture.path(),
+        &["*.env".to_string(), "!.env.example".to_string()],
+    )
+    .unwrap();
+    let relative_paths = snapshot
+        .files
+        .iter()
+        .map(|file| file.relative_path.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(!relative_paths.contains(&".env"));
+    assert!(relative_paths.contains(&".env.example"));
+}
+
+#[test]
+fn discovery_keeps_gitignore_anchored_patterns_root_relative() {
+    let fixture = temp_fixture();
+    std::fs::create_dir_all(fixture.path().join("generated")).unwrap();
+    std::fs::write(
+        fixture.path().join("generated/tsconfig.json"),
+        r#"{"compilerOptions":{"baseUrl":"."}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(fixture.path().join("packages/app/generated")).unwrap();
+    std::fs::write(
+        fixture.path().join("packages/app/generated/tsconfig.json"),
+        r#"{"compilerOptions":{"baseUrl":"."}}"#,
+    )
+    .unwrap();
+
+    let snapshot = discover_project_with_ignore(fixture.path(), &["/generated/".to_string()])
+        .expect("project should discover");
+    let relative_paths = snapshot
+        .files
+        .iter()
+        .map(|file| file.relative_path.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(!relative_paths.contains(&"generated/tsconfig.json"));
+    assert!(relative_paths.contains(&"packages/app/generated/tsconfig.json"));
+}
+
+#[test]
 fn discovery_skips_directly_ignored_target_directory() {
     let fixture = temp_fixture();
     let target = fixture.path().join("packages/app/generated");

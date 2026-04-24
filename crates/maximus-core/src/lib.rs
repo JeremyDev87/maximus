@@ -12,8 +12,10 @@ pub mod models;
 mod text_order;
 
 pub use config::{
-    find_maximus_config_path, load_maximus_config, CheckFilterConfig, ConfigSeverity, FailOnLevel,
-    LoadConfigError, LoadedConfig, MaximusConfig, ReportConfig,
+    find_ignore_root, find_maximus_config_path, load_ignore_file_pattern_sources,
+    load_ignore_file_patterns, load_maximus_config, scope_ignore_patterns, CheckFilterConfig,
+    ConfigSeverity, FailOnLevel, IgnoreFilePatternSources, LoadConfigError, LoadedConfig,
+    MaximusConfig, ReportConfig,
 };
 pub use discover::{
     discover_project, discover_project_with_ignore, discover_project_with_ignore_root,

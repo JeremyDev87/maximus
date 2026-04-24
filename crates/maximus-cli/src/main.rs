@@ -16,8 +16,9 @@ use std::process;
 
 use maximus_checks::{audit_project_with_config_root, registered_check_ids};
 use maximus_core::{
-    apply_fixes, load_maximus_config, preview_fixes, select_fix_plans, select_planned_fixes,
-    AuditResult, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
+    apply_fixes, find_ignore_root, load_ignore_file_pattern_sources, load_maximus_config,
+    preview_fixes, scope_ignore_patterns, select_fix_plans, select_planned_fixes, AuditResult,
+    FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
 };
 
 use crate::args::{parse_args, ArgsError, Flags, OutputFormat};
@@ -337,11 +338,27 @@ fn resolve_effective_config(
     flags: &Flags,
 ) -> Result<ResolvedConfig, CliError> {
     let loaded = load_maximus_config(target_dir)?;
-    let ignore_root = loaded
+    let config_root = loaded
         .as_ref()
-        .and_then(|loaded| loaded.path.parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| target_dir.to_path_buf());
+        .and_then(|loaded| loaded.path.parent().map(std::path::Path::to_path_buf));
+    let ignore_root = find_ignore_root(
+        target_dir,
+        loaded.as_ref().map(|loaded| loaded.path.as_path()),
+    )?;
     let mut config = loaded.map(|loaded| loaded.config).unwrap_or_default();
+    if let Some(config_root) = config_root {
+        config.ignore = scope_ignore_patterns(&config.ignore, &config_root, &ignore_root)?;
+        config.ignore_patterns =
+            scope_ignore_patterns(&config.ignore_patterns, &config_root, &ignore_root)?;
+    }
+    let mut ignore_file_patterns = load_ignore_file_pattern_sources(&ignore_root, target_dir)?;
+    if !ignore_file_patterns.maximusignore.is_empty() {
+        ignore_file_patterns
+            .maximusignore
+            .extend(std::mem::take(&mut config.ignore));
+        config.ignore = ignore_file_patterns.maximusignore;
+    }
+    config.gitignore_patterns = ignore_file_patterns.gitignore;
 
     validate_check_ids("only", &config.checks.only)?;
     validate_check_ids("skip", &config.checks.skip)?;

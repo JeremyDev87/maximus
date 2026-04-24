@@ -1,6 +1,9 @@
 use std::fs;
 
-use maximus_core::{find_maximus_config_path, load_maximus_config, ConfigSeverity, FailOnLevel};
+use maximus_core::{
+    find_ignore_root, find_maximus_config_path, load_ignore_file_patterns, load_maximus_config,
+    ConfigSeverity, FailOnLevel,
+};
 use tempfile::tempdir;
 
 #[test]
@@ -116,6 +119,7 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
             "skip": ["duplicates"]
           },
           "ignore": ["dist", "coverage"],
+          "ignorePatterns": ["**/*.generated.json"],
           "severity": {
             "env-mismatch": "info"
           },
@@ -134,6 +138,11 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
     assert_eq!(loaded.config.checks.only, vec!["env", "tsconfig"]);
     assert_eq!(loaded.config.checks.skip, vec!["duplicates"]);
     assert_eq!(loaded.config.ignore, vec!["dist", "coverage"]);
+    assert_eq!(loaded.config.ignore_patterns, vec!["**/*.generated.json"]);
+    assert_eq!(
+        loaded.config.effective_ignore_patterns(),
+        vec!["dist", "coverage", "**/*.generated.json"]
+    );
     assert_eq!(
         loaded.config.severity.get("env-mismatch"),
         Some(&ConfigSeverity::Info)
@@ -188,4 +197,45 @@ fn parse_errors_when_unknown_config_keys_are_present() {
 
     assert!(rendered.contains(&config_path.to_string_lossy().to_string()));
     assert!(rendered.contains("skp"));
+}
+
+#[test]
+fn loads_ancestor_gitignore_and_nested_maximusignore_patterns_from_ignore_root() {
+    let temp = tempdir().expect("temp dir should exist");
+    let repo = temp.path().join("repo");
+    let nested = repo.join("packages/web");
+    fs::create_dir_all(nested.join("feature")).expect("nested dir should exist");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    fs::write(
+        repo.join(".gitignore"),
+        "\n# generated artifacts\n*.env\n!.env.example\n",
+    )
+    .expect("gitignore should write");
+    fs::write(nested.join(".maximusignore"), "generated/\n").expect("maximusignore should write");
+
+    let ignore_root = find_ignore_root(&nested, None).expect("ignore root should resolve");
+    let patterns =
+        load_ignore_file_patterns(&ignore_root, &nested).expect("ignore patterns should load");
+
+    assert_eq!(
+        ignore_root,
+        fs::canonicalize(&repo).expect("repo should canonicalize")
+    );
+    assert_eq!(
+        patterns,
+        vec!["*.env", "!.env.example", "packages/web/**/generated/",]
+    );
+}
+
+#[test]
+fn loads_maximusignore_but_not_gitignore_without_git_root() {
+    let temp = tempdir().expect("temp dir should exist");
+    fs::write(temp.path().join(".gitignore"), "*.env\n").expect("gitignore should write");
+    fs::write(temp.path().join(".maximusignore"), "generated/\n")
+        .expect("maximusignore should write");
+
+    let patterns =
+        load_ignore_file_patterns(temp.path(), temp.path()).expect("ignore patterns should load");
+
+    assert_eq!(patterns, vec!["generated/"]);
 }

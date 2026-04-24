@@ -30,9 +30,25 @@ const IGNORED_DIRECTORIES: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum IgnorePattern {
-    Component(String),
-    Glob(Vec<String>),
+struct IgnorePattern {
+    negated: bool,
+    matcher: IgnoreMatcher,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IgnoreMatcher {
+    Component {
+        value: String,
+        directory_only: bool,
+    },
+    BasenameGlob {
+        pattern: String,
+        directory_only: bool,
+    },
+    Glob {
+        segments: Vec<String>,
+        directory_only: bool,
+    },
 }
 
 pub fn discover_project(root_dir: impl AsRef<Path>) -> io::Result<ProjectSnapshot> {
@@ -60,7 +76,7 @@ pub fn discover_project_with_ignore_root(
         .filter_map(|pattern| normalize_ignore_pattern(pattern))
         .collect::<Vec<_>>();
 
-    if is_ignored_path_from_root(&ignore_root, &root_dir, &ignored_patterns) {
+    if is_ignored_path_from_root(&ignore_root, &root_dir, &ignored_patterns, true) {
         return Ok(ProjectSnapshot {
             root_dir,
             files: Vec::new(),
@@ -97,7 +113,7 @@ pub fn discover_project_with_ignore_root(
             .map(Path::to_path_buf)
             .unwrap_or_else(|| root_dir.clone());
         let relative_path = relative_string(&root_dir, &path);
-        if is_ignored_path_from_root(&ignore_root, &path, &ignored_patterns) {
+        if is_ignored_path_from_root(&ignore_root, &path, &ignored_patterns, false) {
             continue;
         }
 
@@ -182,7 +198,12 @@ pub fn is_ignored_project_path_from_root(
         .filter_map(|pattern| normalize_ignore_pattern(pattern))
         .collect::<Vec<_>>();
 
-    is_ignored_path_from_root(ignore_root.as_ref(), target.as_ref(), &ignored_patterns)
+    is_ignored_path_from_root(
+        ignore_root.as_ref(),
+        target.as_ref(),
+        &ignored_patterns,
+        target.as_ref().is_dir(),
+    )
 }
 
 pub fn get_files(project: &ProjectSnapshot, kind: FileKind) -> &[ProjectFile] {
@@ -219,7 +240,7 @@ fn should_visit(ignore_root: &Path, entry: &DirEntry, ignored_patterns: &[Ignore
         return false;
     }
 
-    !is_ignored_path_from_root(ignore_root, entry.path(), ignored_patterns)
+    !is_ignored_path_from_root(ignore_root, entry.path(), ignored_patterns, true)
 }
 
 fn should_skip_walk_error(error: &walkdir::Error) -> bool {
@@ -233,31 +254,81 @@ fn should_skip_walk_error(error: &walkdir::Error) -> bool {
 }
 
 fn normalize_ignore_pattern(pattern: &str) -> Option<IgnorePattern> {
-    let trimmed = pattern.trim().replace('\\', "/");
+    let trimmed = pattern.trim_end();
+    let (negated, trimmed) = if let Some(remainder) = trimmed.strip_prefix('!') {
+        (true, remainder.to_string())
+    } else if let Some(remainder) = trimmed.strip_prefix("\\!") {
+        (false, format!("!{remainder}"))
+    } else if let Some(remainder) = trimmed.strip_prefix("\\#") {
+        (false, format!("#{remainder}"))
+    } else {
+        (false, trimmed.to_string())
+    };
+    let trimmed = trimmed.replace('\\', "/");
+    let anchored = trimmed.starts_with('/');
+    let directory_only = trimmed.ends_with('/');
     let trimmed = trimmed.trim_start_matches("./").trim_matches('/');
 
     if trimmed.is_empty() {
         return None;
     }
 
-    if !trimmed.contains('/') && !contains_glob_meta(trimmed) {
-        return Some(IgnorePattern::Component(trimmed.to_string()));
+    if anchored {
+        return Some(IgnorePattern {
+            negated,
+            matcher: IgnoreMatcher::Glob {
+                segments: trimmed
+                    .split('/')
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                directory_only,
+            },
+        });
     }
 
-    Some(IgnorePattern::Glob(
-        trimmed
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .map(ToOwned::to_owned)
-            .collect(),
-    ))
+    if !trimmed.contains('/') && !contains_glob_meta(trimmed) {
+        return Some(IgnorePattern {
+            negated,
+            matcher: IgnoreMatcher::Component {
+                value: trimmed.to_string(),
+                directory_only,
+            },
+        });
+    }
+
+    if !trimmed.contains('/') {
+        return Some(IgnorePattern {
+            negated,
+            matcher: IgnoreMatcher::BasenameGlob {
+                pattern: trimmed.to_string(),
+                directory_only,
+            },
+        });
+    }
+
+    Some(IgnorePattern {
+        negated,
+        matcher: IgnoreMatcher::Glob {
+            segments: trimmed
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .map(ToOwned::to_owned)
+                .collect(),
+            directory_only,
+        },
+    })
 }
 
 fn contains_glob_meta(pattern: &str) -> bool {
     pattern.contains('*') || pattern.contains('?')
 }
 
-fn is_ignored_relative_path(relative_path: &str, ignored_patterns: &[IgnorePattern]) -> bool {
+fn is_ignored_relative_path(
+    relative_path: &str,
+    ignored_patterns: &[IgnorePattern],
+    is_directory: bool,
+) -> bool {
     if ignored_patterns.is_empty() {
         return false;
     }
@@ -268,25 +339,69 @@ fn is_ignored_relative_path(relative_path: &str, ignored_patterns: &[IgnorePatte
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect::<Vec<_>>();
 
-    ignored_patterns.iter().any(|pattern| match pattern {
-        IgnorePattern::Component(component) => path_segments
-            .iter()
-            .any(|segment| *segment == component.as_str()),
-        IgnorePattern::Glob(pattern_segments) => {
-            glob_path_matches(pattern_segments, &path_segments)
+    let mut ignored = false;
+    for pattern in ignored_patterns {
+        if ignore_pattern_matches(pattern, &path_segments, is_directory) {
+            ignored = !pattern.negated;
         }
-    })
+    }
+
+    ignored
+}
+
+fn ignore_pattern_matches(
+    pattern: &IgnorePattern,
+    path_segments: &[&str],
+    is_directory: bool,
+) -> bool {
+    match &pattern.matcher {
+        IgnoreMatcher::Component {
+            value,
+            directory_only,
+        } => {
+            let segments = if *directory_only {
+                directory_path_segments(path_segments, is_directory)
+            } else {
+                path_segments
+            };
+            segments.iter().any(|segment| *segment == value.as_str())
+        }
+        IgnoreMatcher::BasenameGlob {
+            pattern,
+            directory_only,
+        } => {
+            let segments = if *directory_only {
+                directory_path_segments(path_segments, is_directory)
+            } else {
+                path_segments
+            };
+            segments
+                .iter()
+                .any(|segment| glob_segment_matches(pattern, segment))
+        }
+        IgnoreMatcher::Glob {
+            segments,
+            directory_only,
+        } => {
+            if *directory_only {
+                glob_directory_path_matches(segments, path_segments, is_directory)
+            } else {
+                glob_path_or_parent_directory_matches(segments, path_segments, is_directory)
+            }
+        }
+    }
 }
 
 fn is_ignored_path_from_root(
     ignore_root: &Path,
     target: &Path,
     ignored_patterns: &[IgnorePattern],
+    is_directory: bool,
 ) -> bool {
     if ignored_patterns.is_empty() {
         return false;
     }
-    if relative_matches(ignore_root, target, ignored_patterns) {
+    if relative_matches(ignore_root, target, ignored_patterns, is_directory) {
         return true;
     }
 
@@ -297,17 +412,58 @@ fn is_ignored_path_from_root(
         return false;
     };
 
-    relative_matches(&canonical_ignore_root, &canonical_target, ignored_patterns)
+    relative_matches(
+        &canonical_ignore_root,
+        &canonical_target,
+        ignored_patterns,
+        is_directory,
+    )
 }
 
-fn relative_matches(ignore_root: &Path, target: &Path, ignored_patterns: &[IgnorePattern]) -> bool {
+fn relative_matches(
+    ignore_root: &Path,
+    target: &Path,
+    ignored_patterns: &[IgnorePattern],
+    is_directory: bool,
+) -> bool {
     let relative_path = relative_string(ignore_root, target);
-    is_ignored_relative_path(&relative_path, ignored_patterns)
+    is_ignored_relative_path(&relative_path, ignored_patterns, is_directory)
 }
 
 fn glob_path_matches(pattern_segments: &[String], path_segments: &[&str]) -> bool {
     let mut memo = vec![vec![None; path_segments.len() + 1]; pattern_segments.len() + 1];
     glob_path_matches_from(pattern_segments, path_segments, 0, 0, &mut memo)
+}
+
+fn glob_path_or_parent_directory_matches(
+    pattern_segments: &[String],
+    path_segments: &[&str],
+    is_directory: bool,
+) -> bool {
+    glob_path_matches(pattern_segments, path_segments)
+        || glob_directory_path_matches(pattern_segments, path_segments, is_directory)
+}
+
+fn glob_directory_path_matches(
+    pattern_segments: &[String],
+    path_segments: &[&str],
+    is_directory: bool,
+) -> bool {
+    let max_end = if is_directory {
+        path_segments.len()
+    } else {
+        path_segments.len().saturating_sub(1)
+    };
+
+    (0..=max_end).any(|end| glob_path_matches(pattern_segments, &path_segments[..end]))
+}
+
+fn directory_path_segments<'a>(path_segments: &'a [&'a str], is_directory: bool) -> &'a [&'a str] {
+    if is_directory {
+        path_segments
+    } else {
+        &path_segments[..path_segments.len().saturating_sub(1)]
+    }
 }
 
 fn glob_path_matches_from(
