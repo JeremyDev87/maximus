@@ -2,12 +2,16 @@ Maximus audit
 Target: <TARGET>
 
 Status: attention needed
-Findings: 0 error, 1 warnings, 0 info
+Findings: 0 error, 2 warnings, 0 info
 Fixes available: 1
 
 Structure: single package, 0 package(s), 1 config file(s), 1 env folder(s)
 
 Findings
+- [warn] Concrete env file ".env" is not protected by .gitignore
+  file: .env
+  detail: Add ".env" to .gitignore.
+  hint: Protect concrete env files with an exact .gitignore entry before committing secrets.
 - [warn] Missing .env.example contract
   file: .env
   detail: Runtime env files exist, but .env.example is missing.

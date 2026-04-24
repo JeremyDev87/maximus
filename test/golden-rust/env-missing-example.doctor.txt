@@ -6,14 +6,21 @@ Project shape: single package, 0 package(s), 1 config file(s), 1 env folder(s)
 
 Prescription
 - Run "maximus fix" to apply 1 safe fix(es).
-- No manual follow-up is required right now.
+- Review 1 manual issue(s) in priority order below.
 
 Top 3 priorities
-1. [warn] Missing .env.example contract
+1. [warn] Concrete env file ".env" is not protected by .gitignore
+   file: .env
+   next: Protect concrete env files with an exact .gitignore entry before committing secrets.
+2. [warn] Missing .env.example contract
    file: .env
    next: Run "maximus fix" to create a blank contract file.
 
 Findings
+- [warn] Concrete env file ".env" is not protected by .gitignore
+  file: .env
+  detail: Add ".env" to .gitignore.
+  hint: Protect concrete env files with an exact .gitignore entry before committing secrets.
 - [warn] Missing .env.example contract
   file: .env
   detail: Runtime env files exist, but .env.example is missing.

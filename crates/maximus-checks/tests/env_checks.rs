@@ -1,17 +1,19 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-#[path = "../src/env.rs"]
-mod env;
 #[path = "../src/check_outcome.rs"]
 mod check_outcome;
+#[path = "../src/env.rs"]
+mod env;
 
 use env::{render_created_env_example, render_synced_env_example, run_env_check};
 use maximus_core::{apply_fix, discover_project, FixOperation, FixPlan, Severity};
 use tempfile::TempDir;
 
 #[test]
-fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and_missing_concrete() {
+fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and_missing_concrete()
+{
     let fixture = TempDir::new().expect("temp dir should exist");
 
     write(
@@ -46,7 +48,10 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
     );
     assert_has_finding(
         &outcome.findings,
-        &format!("env-invalid:{}:4", fixture.path().join(".env").to_string_lossy()),
+        &format!(
+            "env-invalid:{}:4",
+            fixture.path().join(".env").to_string_lossy()
+        ),
         Severity::Warn,
         "Invalid env syntax",
         "Line 4 could not be parsed as KEY=value.",
@@ -64,7 +69,10 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
         "Run \"maximus fix\" to append the missing keys to .env.example.",
         Some(fixture.path().join(".env.example")),
         true,
-        &[format!("env-example:sync:{}", fixture.path().to_string_lossy())],
+        &[format!(
+            "env-example:sync:{}",
+            fixture.path().to_string_lossy()
+        )],
     );
     assert_has_finding(
         &outcome.findings,
@@ -149,6 +157,320 @@ fn env_check_plans_example_creation_when_runtime_env_files_exist_without_contrac
 }
 
 #[test]
+fn env_check_reports_unprotected_concrete_env_files_and_respects_root_and_nested_gitignore_entries()
+{
+    let root_fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        root_fixture.path().join(".env"),
+        "API_URL=https://example.test\n",
+    );
+
+    let root_project = discover_project(root_fixture.path()).expect("project should discover");
+    let root_outcome = run_env_check(&root_project).expect("check should run");
+
+    assert_has_finding(
+        &root_outcome.findings,
+        &format!(
+            "env-gitignore:{}",
+            root_fixture.path().join(".env").to_string_lossy()
+        ),
+        Severity::Warn,
+        "Concrete env file \".env\" is not protected by .gitignore",
+        "Add \".env\" to .gitignore.",
+        "Protect concrete env files with an exact .gitignore entry before committing secrets.",
+        Some(root_fixture.path().join(".env")),
+        false,
+        &[],
+    );
+
+    write(root_fixture.path().join(".gitignore"), ".env\n");
+    let protected_project = discover_project(root_fixture.path()).expect("project should discover");
+    let protected_outcome = run_env_check(&protected_project).expect("check should run");
+
+    assert!(
+        !protected_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "root .gitignore should protect .env"
+    );
+
+    write(root_fixture.path().join(".gitignore"), ".env\n!.env\n");
+    let negated_project = discover_project(root_fixture.path()).expect("project should discover");
+    let negated_outcome = run_env_check(&negated_project).expect("check should run");
+
+    assert!(
+        negated_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "later .gitignore negation should make .env unprotected"
+    );
+
+    let leading_space_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        leading_space_fixture.path().join(".env"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(leading_space_fixture.path().join(".gitignore"), " .env\n");
+
+    let leading_space_project =
+        discover_project(leading_space_fixture.path()).expect("project should discover");
+    let leading_space_outcome = run_env_check(&leading_space_project).expect("check should run");
+
+    assert!(
+        leading_space_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "leading-space .gitignore pattern should not protect .env"
+    );
+
+    let glob_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        glob_fixture.path().join(".env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(glob_fixture.path().join(".env.example"), "API_TOKEN=\n");
+    write(
+        glob_fixture.path().join(".gitignore"),
+        ".env*\n!.env.example\n",
+    );
+
+    let glob_project = discover_project(glob_fixture.path()).expect("project should discover");
+    let glob_outcome = run_env_check(&glob_project).expect("check should run");
+
+    assert!(
+        !glob_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "glob .gitignore pattern should protect .env.local"
+    );
+
+    let globstar_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        globstar_fixture.path().join("apps/web/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        globstar_fixture.path().join(".gitignore"),
+        "**/.env.local\n",
+    );
+
+    let globstar_project =
+        discover_project(globstar_fixture.path()).expect("project should discover");
+    let globstar_outcome = run_env_check(&globstar_project).expect("check should run");
+
+    assert!(
+        !globstar_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "globstar .gitignore pattern should protect nested .env.local"
+    );
+
+    let directory_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        directory_fixture.path().join("apps/web/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(directory_fixture.path().join(".gitignore"), "apps/\n");
+
+    let directory_project =
+        discover_project(directory_fixture.path()).expect("project should discover");
+    let directory_outcome = run_env_check(&directory_project).expect("check should run");
+
+    assert!(
+        !directory_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "directory-only .gitignore pattern should protect files under that directory"
+    );
+
+    let bare_directory_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        bare_directory_fixture.path().join("secrets/.env"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        bare_directory_fixture.path().join(".gitignore"),
+        "secrets\n",
+    );
+
+    let bare_directory_project =
+        discover_project(bare_directory_fixture.path()).expect("project should discover");
+    let bare_directory_outcome = run_env_check(&bare_directory_project).expect("check should run");
+
+    assert!(
+        !bare_directory_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "bare directory .gitignore pattern should protect files under that directory"
+    );
+
+    let tracked_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        tracked_fixture.path().join(".env"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(tracked_fixture.path().join(".gitignore"), ".env\n");
+    run_git(tracked_fixture.path(), &["init"]);
+    run_git(tracked_fixture.path(), &["add", "-f", ".env"]);
+
+    let tracked_project =
+        discover_project(tracked_fixture.path()).expect("project should discover");
+    let tracked_outcome = run_env_check(&tracked_project).expect("check should run");
+
+    assert!(
+        tracked_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "tracked concrete env files should not be treated as protected by .gitignore"
+    );
+
+    let nested_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        nested_fixture.path().join("apps/web/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        nested_fixture.path().join("apps/web/.gitignore"),
+        ".env.local\n",
+    );
+
+    let nested_project = discover_project(nested_fixture.path()).expect("project should discover");
+    let nested_outcome = run_env_check(&nested_project).expect("check should run");
+
+    assert!(
+        !nested_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "nested .gitignore should protect .env.local"
+    );
+
+    let ancestor_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        ancestor_fixture.path().join("apps/web/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        ancestor_fixture.path().join("apps/.gitignore"),
+        ".env.local\n",
+    );
+
+    let ancestor_project =
+        discover_project(ancestor_fixture.path()).expect("project should discover");
+    let ancestor_outcome = run_env_check(&ancestor_project).expect("check should run");
+
+    assert!(
+        !ancestor_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "ancestor .gitignore should protect nested .env.local"
+    );
+
+    let subdir_audit_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        subdir_audit_fixture.path().join(".git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    write(
+        subdir_audit_fixture.path().join(".gitignore"),
+        "packages/app/.env.local\n",
+    );
+    write(
+        subdir_audit_fixture.path().join("packages/app/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+
+    let subdir_project = discover_project(subdir_audit_fixture.path().join("packages/app"))
+        .expect("project should discover");
+    let subdir_outcome = run_env_check(&subdir_project).expect("check should run");
+
+    assert!(
+        !subdir_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "repo root .gitignore should protect subdir audit targets"
+    );
+
+    let anchored_nested_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        anchored_nested_fixture.path().join("apps/web/.env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        anchored_nested_fixture.path().join(".gitignore"),
+        "/.env.local\n",
+    );
+
+    let anchored_nested_project =
+        discover_project(anchored_nested_fixture.path()).expect("project should discover");
+    let anchored_nested_outcome =
+        run_env_check(&anchored_nested_project).expect("check should run");
+
+    assert!(
+        anchored_nested_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "anchored root .gitignore pattern should not protect nested .env.local"
+    );
+
+    let anchored_root_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        anchored_root_fixture.path().join(".env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        anchored_root_fixture.path().join(".gitignore"),
+        "/.env.local\n",
+    );
+
+    let anchored_root_project =
+        discover_project(anchored_root_fixture.path()).expect("project should discover");
+    let anchored_root_outcome = run_env_check(&anchored_root_project).expect("check should run");
+
+    assert!(
+        !anchored_root_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "anchored root .gitignore pattern should protect root .env.local"
+    );
+
+    let directory_only_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        directory_only_fixture.path().join(".env.local"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        directory_only_fixture.path().join(".gitignore"),
+        ".env.local/\n",
+    );
+
+    let directory_only_project =
+        discover_project(directory_only_fixture.path()).expect("project should discover");
+    let directory_only_outcome = run_env_check(&directory_only_project).expect("check should run");
+
+    assert!(
+        directory_only_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "directory-only .gitignore pattern should not protect env files"
+    );
+}
+
+#[test]
 fn env_sync_planned_fix_uses_audited_snapshot_text() {
     let fixture = TempDir::new().expect("temp dir should exist");
     let example_path = fixture.path().join(".env.example");
@@ -161,7 +483,9 @@ fn env_sync_planned_fix_uses_audited_snapshot_text() {
     let planned = outcome
         .planned_fixes
         .iter()
-        .find(|fix| fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy()))
+        .find(|fix| {
+            fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy())
+        })
         .expect("planned sync fix should exist")
         .clone();
 
@@ -191,16 +515,12 @@ fn env_example_render_helpers_match_js_create_and_sync_semantics() {
         "ALPHA=\nZETA=\n"
     );
 
-    let synced = render_synced_env_example(
-        "PRIMARY=\n",
-        &["ZETA".to_string(), "ALPHA".to_string()],
-    );
+    let synced =
+        render_synced_env_example("PRIMARY=\n", &["ZETA".to_string(), "ALPHA".to_string()]);
     assert_eq!(synced, "PRIMARY=\nALPHA=\nZETA=\n");
 
-    let synced_without_trailing_newline = render_synced_env_example(
-        "PRIMARY=",
-        &["ZETA".to_string(), "ALPHA".to_string()],
-    );
+    let synced_without_trailing_newline =
+        render_synced_env_example("PRIMARY=", &["ZETA".to_string(), "ALPHA".to_string()]);
     assert_eq!(synced_without_trailing_newline, "PRIMARY=\nALPHA=\nZETA=\n");
 
     let synced_with_js_like_locale_order = render_synced_env_example(
@@ -291,20 +611,23 @@ fn env_contract_matrix_local_only_fixture_creates_example_contract() {
     let planned = outcome
         .planned_fixes
         .iter()
-        .find(|fix| fix.public.id == format!("env-example:create:{}", fixture.path().to_string_lossy()))
+        .find(|fix| {
+            fix.public.id == format!("env-example:create:{}", fixture.path().to_string_lossy())
+        })
         .expect("planned create fix should exist")
         .clone();
 
     apply_fix(&planned).expect("planned fix should apply");
 
-    let output = fs::read_to_string(fixture.path().join(".env.example"))
-        .expect("example file should exist");
+    let output =
+        fs::read_to_string(fixture.path().join(".env.example")).expect("example file should exist");
     assert_eq!(output, "API_URL=\nAUTH_TOKEN=\n");
 }
 
 #[test]
 fn env_template_order_preservation_fixtures_match_js_outputs() {
-    let create_fixture = copy_fixture_to_temp("env-template-order-preservation/create-from-concrete");
+    let create_fixture =
+        copy_fixture_to_temp("env-template-order-preservation/create-from-concrete");
     let create_project = discover_project(create_fixture.path()).expect("project should discover");
     let create_outcome = run_env_check(&create_project).expect("check should run");
     let create_fix = create_outcome
@@ -321,7 +644,8 @@ fn env_template_order_preservation_fixtures_match_js_outputs() {
         "API_URL=\nAPI-URL=\nAPI.URL=\nVAR_1=\nVAR_10=\nVAR_2=\n"
     );
 
-    let sync_fixture = copy_fixture_to_temp("env-template-order-preservation/sync-existing-template");
+    let sync_fixture =
+        copy_fixture_to_temp("env-template-order-preservation/sync-existing-template");
     let sync_project = discover_project(sync_fixture.path()).expect("project should discover");
     let sync_outcome = run_env_check(&sync_project).expect("check should run");
     let sync_fix = sync_outcome
@@ -346,6 +670,15 @@ fn write(path: impl AsRef<Path>, content: &str) {
     }
 
     fs::write(path, content).expect("fixture file should write");
+}
+
+fn run_git(root: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .expect("git command should run");
+    assert!(output.status.success(), "{output:?}");
 }
 
 fn fixture_root(relative_path: &str) -> PathBuf {
