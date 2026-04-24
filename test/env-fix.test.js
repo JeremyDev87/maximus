@@ -128,6 +128,7 @@ test("env gitignore protection honors negation and ancestor gitignore files", as
   const leadingSpaceRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-env-gitignore-leading-space-"));
   const directoryRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-env-gitignore-directory-"));
   const bareDirectoryRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-env-gitignore-bare-directory-"));
+  const negatedDirectoryRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-env-gitignore-negated-directory-"));
   const trackedRoot = await mkdtemp(path.join(os.tmpdir(), "maximus-env-gitignore-tracked-"));
 
   t.after(async () => {
@@ -142,6 +143,7 @@ test("env gitignore protection honors negation and ancestor gitignore files", as
     await rm(leadingSpaceRoot, { recursive: true, force: true });
     await rm(directoryRoot, { recursive: true, force: true });
     await rm(bareDirectoryRoot, { recursive: true, force: true });
+    await rm(negatedDirectoryRoot, { recursive: true, force: true });
     await rm(trackedRoot, { recursive: true, force: true });
   });
 
@@ -201,6 +203,16 @@ test("env gitignore protection honors negation and ancestor gitignore files", as
   assert.ok(
     !bareDirectoryAudit.findings.some((finding) => finding.id.startsWith("env-gitignore:")),
     "bare directory .gitignore pattern should protect files under that directory",
+  );
+
+  await mkdir(path.join(negatedDirectoryRoot, "secrets"), { recursive: true });
+  await writeFile(path.join(negatedDirectoryRoot, "secrets/.env"), "API_TOKEN=abcdef1234567890\n", "utf8");
+  await writeFile(path.join(negatedDirectoryRoot, ".gitignore"), "*.env\n!secrets/\n", "utf8");
+
+  const negatedDirectoryAudit = await auditProject(negatedDirectoryRoot);
+  assert.ok(
+    !negatedDirectoryAudit.findings.some((finding) => finding.id.startsWith("env-gitignore:")),
+    "negated directory pattern should not unprotect ignored env files inside that directory",
   );
 
   await writeFile(path.join(trackedRoot, ".env"), "API_TOKEN=abcdef1234567890\n", "utf8");

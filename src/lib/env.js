@@ -167,7 +167,7 @@ function normalizeGitignorePattern(pattern) {
 
 function patternMatchesFile(pattern, relativePath, fileName) {
   if (pattern.directoryOnly) {
-    return directoryPatternMatchesFile(pattern, relativePath);
+    return !pattern.negated && directoryPatternMatchesFile(pattern, relativePath);
   }
 
   return (

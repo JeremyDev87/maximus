@@ -312,6 +312,29 @@ fn env_check_reports_unprotected_concrete_env_files_and_respects_root_and_nested
         "bare directory .gitignore pattern should protect files under that directory"
     );
 
+    let negated_directory_fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        negated_directory_fixture.path().join("secrets/.env"),
+        "API_TOKEN=abcdef1234567890\n",
+    );
+    write(
+        negated_directory_fixture.path().join(".gitignore"),
+        "*.env\n!secrets/\n",
+    );
+
+    let negated_directory_project =
+        discover_project(negated_directory_fixture.path()).expect("project should discover");
+    let negated_directory_outcome =
+        run_env_check(&negated_directory_project).expect("check should run");
+
+    assert!(
+        !negated_directory_outcome
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("env-gitignore:")),
+        "negated directory pattern should not unprotect ignored env files inside that directory"
+    );
+
     let tracked_fixture = TempDir::new().expect("temp dir should exist");
     write(
         tracked_fixture.path().join(".env"),
