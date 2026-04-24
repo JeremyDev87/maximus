@@ -192,6 +192,48 @@ fn vite_tsconfig_alias_check_reports_path_resolve_object_mismatches() {
 }
 
 #[test]
+fn vite_tsconfig_alias_check_reports_function_form_config_mismatches() {
+    let fixture = fixture("function-form-mismatch");
+
+    let project = discover_project(&fixture).expect("project should discover");
+    let outcome = run_vite_tsconfig_alias_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "vite-alias-sync:{}:@app",
+            fixture.join("vite.config.ts").to_string_lossy()
+        ),
+        Severity::Warn,
+        "Vite alias \"@app\" differs from tsconfig paths",
+        "Vite resolves \"@app\" to",
+        "Align both alias surfaces so editor and bundler resolution stay in sync.",
+        Some(fixture.join("vite.config.ts")),
+    );
+}
+
+#[test]
+fn vite_tsconfig_alias_check_reports_function_form_block_return_mismatches() {
+    let fixture = fixture("function-form-block-mismatch");
+
+    let project = discover_project(&fixture).expect("project should discover");
+    let outcome = run_vite_tsconfig_alias_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "vite-alias-sync:{}:@app",
+            fixture.join("vite.config.ts").to_string_lossy()
+        ),
+        Severity::Warn,
+        "Vite alias \"@app\" differs from tsconfig paths",
+        "Vite resolves \"@app\" to",
+        "Align both alias surfaces so editor and bundler resolution stay in sync.",
+        Some(fixture.join("vite.config.ts")),
+    );
+}
+
+#[test]
 fn vite_tsconfig_alias_check_ignores_alias_tokens_inside_comments() {
     let fixture = fixture("comment-prefix-mismatch");
 
