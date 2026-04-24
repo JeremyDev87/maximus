@@ -25,7 +25,10 @@ fn default_fail_on_applies_to_warning_findings_across_commands() {
         vec!["doctor", target.as_str()],
         vec!["fix", target.as_str(), "--dry-run"],
     ] {
-        let output = maximus_bin().args(args).output().expect("command should run");
+        let output = maximus_bin()
+            .args(args)
+            .output()
+            .expect("command should run");
         assert_eq!(output.status.code(), Some(1), "{output:?}");
     }
 }
@@ -40,7 +43,10 @@ fn explicit_info_escalates_info_only_findings() {
         vec!["doctor", target.as_str(), "--fail-on", "info"],
         vec!["fix", target.as_str(), "--dry-run", "--fail-on", "info"],
     ] {
-        let output = maximus_bin().args(args).output().expect("command should run");
+        let output = maximus_bin()
+            .args(args)
+            .output()
+            .expect("command should run");
         assert_eq!(output.status.code(), Some(1), "{output:?}");
     }
 }
@@ -55,7 +61,10 @@ fn explicit_none_suppresses_warning_only_findings() {
         vec!["doctor", target.as_str(), "--fail-on", "none"],
         vec!["fix", target.as_str(), "--dry-run", "--fail-on", "none"],
     ] {
-        let output = maximus_bin().args(args).output().expect("command should run");
+        let output = maximus_bin()
+            .args(args)
+            .output()
+            .expect("command should run");
         assert_eq!(output.status.code(), Some(0), "{output:?}");
     }
 }
@@ -124,12 +133,14 @@ fn assert_finding_severity(output: &Output, expected_severity: &str) {
     let findings = value["findings"]
         .as_array()
         .expect("findings should be an array");
-    assert_eq!(findings.len(), 1);
-    assert_eq!(
-        findings[0]
-            .as_object()
-            .and_then(|finding| finding.get("severity"))
-            .and_then(Value::as_str),
-        Some(expected_severity)
+    assert!(
+        findings.iter().any(|finding| {
+            finding
+                .as_object()
+                .and_then(|finding| finding.get("severity"))
+                .and_then(Value::as_str)
+                == Some(expected_severity)
+        }),
+        "expected at least one {expected_severity} finding, got {findings:?}"
     );
 }

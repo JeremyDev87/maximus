@@ -12,6 +12,8 @@ pub mod package_entrypoints;
 pub mod registry;
 pub mod structure;
 mod tsconfig;
+mod vite_tsconfig_alias;
+mod workspace_config;
 
 pub use check_outcome::CheckOutcome;
 pub use config_duplicates::run_config_duplicate_check;
@@ -27,3 +29,5 @@ pub use registry::{
 };
 pub use structure::build_structure_report;
 pub use tsconfig::run_tsconfig_check;
+pub use vite_tsconfig_alias::run_vite_tsconfig_alias_check;
+pub use workspace_config::run_workspace_config_check;

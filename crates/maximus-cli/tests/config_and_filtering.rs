@@ -400,14 +400,14 @@ fn cli_skip_flag_clears_config_only_filters() {
         .as_array()
         .expect("findings should be an array");
     assert_eq!(findings.len(), 1);
-    assert_eq!(
-        finding_field(
-            findings[0]
-                .as_object()
-                .expect("finding should be an object"),
-            "category"
-        ),
-        "tsconfig"
+    assert!(
+        findings.iter().any(|finding| {
+            finding_field(
+                finding.as_object().expect("finding should be an object"),
+                "category",
+            ) == "tsconfig"
+        }),
+        "expected at least one tsconfig finding: {findings:?}"
     );
 }
 
@@ -550,14 +550,14 @@ fn empty_severity_prefix_is_ignored() {
         .as_array()
         .expect("findings should be an array");
     assert_eq!(findings.len(), 1);
-    assert_eq!(
-        finding_field(
-            findings[0]
-                .as_object()
-                .expect("finding should be an object"),
-            "severity"
-        ),
-        "warn"
+    assert!(
+        findings.iter().any(|finding| {
+            finding_field(
+                finding.as_object().expect("finding should be an object"),
+                "severity",
+            ) == "warn"
+        }),
+        "expected original warn finding to remain: {findings:?}"
     );
 }
 
