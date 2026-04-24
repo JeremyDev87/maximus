@@ -1,9 +1,14 @@
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
+import { promisify } from "node:util";
 
 import { getDirectories } from "../core/discover.js";
 import { makeFinding } from "../core/findings.js";
 import {
+  formatGitignoreProtectionHint,
   isConcreteEnvFileName,
+  isPathProtectedByExactGitignore,
   isTemplateEnvFileName,
   looksLikeSecret,
   parseEnv,
@@ -11,9 +16,12 @@ import {
 } from "../lib/env.js";
 import { readTextIfExists, writeText } from "../lib/fs.js";
 
+const execFileAsync = promisify(execFile);
+
 export async function runEnvCheck(project) {
   const findings = [];
   const fixes = [];
+  const gitignoreTraversalRoot = await findGitignoreTraversalRoot(project.rootDir);
 
   for (const directory of getDirectories(project)) {
     const envFiles = directory.filesByKind.get("env") ?? [];
@@ -75,6 +83,29 @@ export async function runEnvCheck(project) {
       for (const key of record.parsed.order) {
         contractKeys.add(key);
       }
+    }
+
+    const gitignoreSources = await readAncestorGitignoreSources(gitignoreTraversalRoot, directory.dir);
+
+    for (const record of concreteRecords) {
+      const isTracked = await isPathTrackedByGit(gitignoreTraversalRoot, record.file.path);
+      const isProtected = !isTracked && isPathProtectedByExactGitignore(record.file.path, gitignoreSources);
+
+      if (isProtected) {
+        continue;
+      }
+
+      findings.push(
+        makeFinding({
+          id: `env-gitignore:${record.file.path}`,
+          category: "env",
+          severity: "warn",
+          title: `Concrete env file "${record.file.name}" is not protected by .gitignore`,
+          file: record.file.path,
+          detail: formatGitignoreProtectionHint(project.rootDir, directory.dir, record.file.path),
+          hint: "Protect concrete env files with an exact .gitignore entry before committing secrets.",
+        }),
+      );
     }
 
     if (contractKeys.size > 0 && !exampleRecord) {
@@ -225,6 +256,66 @@ export async function runEnvCheck(project) {
   }
 
   return { findings, fixes };
+}
+
+async function isPathTrackedByGit(repoRoot, filePath) {
+  const relativePath = path.relative(repoRoot, filePath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return false;
+  }
+
+  try {
+    await execFileAsync("git", ["-C", repoRoot, "ls-files", "--error-unmatch", "--", relativePath]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findGitignoreTraversalRoot(rootDir) {
+  let currentDir = rootDir;
+
+  while (true) {
+    try {
+      await stat(path.join(currentDir, ".git"));
+      return currentDir;
+    } catch {
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) {
+        return rootDir;
+      }
+      currentDir = parentDir;
+    }
+  }
+}
+
+async function readAncestorGitignoreSources(rootDir, directoryDir) {
+  const sources = [];
+  let currentDir = rootDir;
+
+  while (true) {
+    const gitignoreText = await readTextIfExists(path.join(currentDir, ".gitignore"));
+    if (gitignoreText != null) {
+      sources.push([currentDir, gitignoreText]);
+    }
+
+    if (currentDir === directoryDir) {
+      break;
+    }
+
+    const relative = path.relative(currentDir, directoryDir);
+    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+      break;
+    }
+
+    const [nextSegment] = relative.split(path.sep);
+    if (!nextSegment) {
+      break;
+    }
+    currentDir = path.join(currentDir, nextSegment);
+  }
+
+  return sources;
 }
 
 function compareContractRecords(left, right) {

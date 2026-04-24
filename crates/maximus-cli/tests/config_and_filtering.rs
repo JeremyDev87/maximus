@@ -623,15 +623,13 @@ fn composite_project_reference_is_blocking_under_fail_on_error() {
         ),
         "error"
     );
-    assert!(
-        finding_field(
-            findings[0]
-                .as_object()
-                .expect("finding should be an object"),
-            "id"
-        )
-        .contains(":composite")
-    );
+    assert!(finding_field(
+        findings[0]
+            .as_object()
+            .expect("finding should be an object"),
+        "id"
+    )
+    .contains(":composite"));
 }
 
 #[cfg(unix)]
@@ -650,7 +648,10 @@ fn unreadable_project_reference_becomes_a_finding_instead_of_a_cli_error() {
         }
         "#,
     );
-    write(&target_path, r#"{ "compilerOptions": { "composite": true } }"#);
+    write(
+        &target_path,
+        r#"{ "compilerOptions": { "composite": true } }"#,
+    );
 
     let original_permissions = fs::metadata(&target_path)
         .expect("target metadata should exist")
@@ -686,15 +687,13 @@ fn unreadable_project_reference_becomes_a_finding_instead_of_a_cli_error() {
         .as_array()
         .expect("findings should be an array");
     assert_eq!(findings.len(), 1);
-    assert!(
-        finding_field(
-            findings[0]
-                .as_object()
-                .expect("finding should be an object"),
-            "id"
-        )
-        .contains(":unreadable")
-    );
+    assert!(finding_field(
+        findings[0]
+            .as_object()
+            .expect("finding should be an object"),
+        "id"
+    )
+    .contains(":unreadable"));
     assert_eq!(
         finding_field(
             findings[0]
@@ -768,6 +767,7 @@ fn write_env_fixture(root: &Path) {
     write(root.join(".env"), "SHARED=base\n");
     write(root.join(".env.local"), "SHARED=local\n");
     write(root.join(".env.example"), "SHARED=\n");
+    write(root.join(".gitignore"), ".env\n.env.local\n");
 }
 
 fn write_tsconfig_conflict_fixture(root: &Path) {
