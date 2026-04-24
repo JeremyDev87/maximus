@@ -592,7 +592,7 @@ fn pattern_matches_file(
     file_name: &str,
 ) -> bool {
     if pattern.directory_only {
-        return directory_pattern_matches_file(pattern, relative_path);
+        return !pattern.negated && directory_pattern_matches_file(pattern, relative_path);
     }
 
     directory_pattern_matches_file(pattern, relative_path)
