@@ -22,9 +22,9 @@ fn no_args_prints_help() {
             "Bring order to chaotic configs.",
             "",
             "Usage",
-            "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-            "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-            "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+            "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+            "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+            "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
             "  maximus help",
             "",
         ]
@@ -43,7 +43,7 @@ fn help_subcommand_prints_usage() {
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
         .contains(
-            "maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]"
+            "maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]"
         ));
 }
 
@@ -65,6 +65,65 @@ fn audit_json_routes_to_clean_skeleton_result() {
     assert_eq!(value["structure"]["configFiles"], 1);
     assert_eq!(value["findings"], Value::Array(Vec::new()));
     assert_eq!(value["fixes"], Value::Array(Vec::new()));
+}
+
+#[test]
+fn audit_format_markdown_routes_to_markdown_report() {
+    let fixture = fixture_path();
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.to_string_lossy().as_ref(),
+            "--format",
+            "markdown",
+        ])
+        .output()
+        .expect("audit markdown should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.starts_with("# Maximus audit\n"));
+    assert!(stdout.contains("- Status: `clean`"));
+}
+
+#[test]
+fn audit_format_sarif_routes_to_sarif_report() {
+    let fixture = fixture_path();
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.to_string_lossy().as_ref(),
+            "--format",
+            "sarif",
+        ])
+        .output()
+        .expect("audit sarif should run");
+
+    assert!(output.status.success());
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("audit sarif output should be valid");
+    assert_eq!(value["version"], "2.1.0");
+    assert_eq!(value["runs"][0]["properties"]["reportKind"], "audit");
+}
+
+#[test]
+fn doctor_format_sarif_routes_to_doctor_sarif_report() {
+    let fixture = fixture_path();
+    let output = maximus_bin()
+        .args([
+            "doctor",
+            fixture.to_string_lossy().as_ref(),
+            "--format",
+            "sarif",
+        ])
+        .output()
+        .expect("doctor sarif should run");
+
+    assert!(output.status.success());
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("doctor sarif output should be valid");
+    assert_eq!(value["version"], "2.1.0");
+    assert_eq!(value["runs"][0]["properties"]["reportKind"], "doctor");
 }
 
 #[test]
@@ -211,6 +270,27 @@ fn fix_dry_run_json_keeps_js_top_level_contract() {
     assert!(value.get("initial").is_some());
     assert!(value.get("applied").is_some());
     assert!(value.get("final").is_some());
+}
+
+#[test]
+fn fix_format_sarif_fails_closed() {
+    let fixture = fixture_path();
+    let output = maximus_bin()
+        .args([
+            "fix",
+            fixture.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--format",
+            "sarif",
+        ])
+        .output()
+        .expect("fix sarif rejection should run");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(output.stderr).expect("stderr should be utf8"),
+        "Maximus failed: Option \"--format sarif\" is only available for \"audit\" and \"doctor\".\n"
+    );
 }
 
 #[test]

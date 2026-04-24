@@ -3,6 +3,8 @@ mod exit_codes;
 mod fail_policy;
 mod report_diff;
 mod report_json;
+mod report_markdown;
+mod report_sarif;
 mod report_text;
 
 use std::env;
@@ -18,7 +20,7 @@ use maximus_core::{
     AuditResult, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
 };
 
-use crate::args::{parse_args, ArgsError, Flags};
+use crate::args::{parse_args, ArgsError, Flags, OutputFormat};
 
 #[derive(Debug, Clone)]
 struct ResolvedConfig {
@@ -136,11 +138,7 @@ fn run_audit_command(
     let audited =
         audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
 
-    if flags.json {
-        println!("{}", report_json::render_audit_result(&audited.result)?);
-    } else {
-        println!("{}", report_text::format_audit_report(&audited.result));
-    }
+    print_audit_report(flags, &audited.result)?;
 
     let fail_on = effective_fail_on_level(&resolved.config);
     Ok(fail_policy::exit_code(&audited.result.summary, &fail_on))
@@ -154,11 +152,7 @@ fn run_doctor_command(
     let audited =
         audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
 
-    if flags.json {
-        println!("{}", report_json::render_audit_result(&audited.result)?);
-    } else {
-        println!("{}", report_text::format_doctor_report(&audited.result));
-    }
+    print_doctor_report(flags, &audited.result)?;
 
     let fail_on = effective_fail_on_level(&resolved.config);
     Ok(fail_policy::exit_code(&audited.result.summary, &fail_on))
@@ -206,43 +200,136 @@ fn run_fix_command(
         audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?.result
     };
 
-    if flags.json {
-        println!(
-            "{}",
-            report_json::render_fix_result(
-                flags.dry_run,
-                target_dir,
-                &selected_initial,
-                &applied,
-                &final_result,
-                previewed.as_deref(),
-            )?
-        );
+    let selected_for_report = if selector.is_empty() && !flags.diff {
+        None
     } else {
-        let selected_for_report = if selector.is_empty() && !flags.diff {
-            None
-        } else {
-            Some(selected_initial.fixes.as_slice())
-        };
-        let preview_report = previewed
-            .as_ref()
-            .map(|previews| report_diff::render_fix_preview(target_dir, previews));
-        println!(
-            "{}",
-            report_text::format_fix_result(
-                flags.dry_run,
-                target_dir,
-                &selected_initial,
-                &applied,
-                &final_result,
-                selected_for_report,
-                preview_report.as_deref(),
-            )
-        );
-    }
+        Some(selected_initial.fixes.as_slice())
+    };
+    let preview_report = previewed
+        .as_ref()
+        .map(|previews| report_diff::render_fix_preview(target_dir, previews));
+    print_fix_report(
+        flags,
+        target_dir,
+        &selected_initial,
+        &applied,
+        &final_result,
+        selected_for_report,
+        preview_report.as_deref(),
+        previewed.as_deref(),
+    )?;
 
     let fail_on = effective_fail_on_level(&resolved.config);
     Ok(fail_policy::exit_code(&final_result.summary, &fail_on))
+}
+
+fn print_audit_report(flags: &Flags, result: &AuditResult) -> Result<(), CliError> {
+    match flags.output_format {
+        crate::args::OutputFormat::Text => {
+            println!("{}", report_text::format_audit_report(result));
+        }
+        crate::args::OutputFormat::Json => {
+            println!("{}", report_json::render_audit_result(result)?);
+        }
+        crate::args::OutputFormat::Markdown => {
+            println!("{}", report_markdown::format_audit_report(result));
+        }
+        crate::args::OutputFormat::Sarif => {
+            println!("{}", report_sarif::render_audit_result(result)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn print_doctor_report(flags: &Flags, result: &AuditResult) -> Result<(), CliError> {
+    match flags.output_format {
+        crate::args::OutputFormat::Text => {
+            println!("{}", report_text::format_doctor_report(result));
+        }
+        crate::args::OutputFormat::Json => {
+            println!("{}", report_json::render_audit_result(result)?);
+        }
+        crate::args::OutputFormat::Markdown => {
+            println!("{}", report_markdown::format_doctor_report(result));
+        }
+        crate::args::OutputFormat::Sarif => {
+            println!("{}", report_sarif::render_doctor_result(result)?);
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_fix_report(
+    flags: &Flags,
+    target_dir: &std::path::Path,
+    initial: &AuditResult,
+    applied: &[maximus_core::AppliedFix],
+    final_result: &AuditResult,
+    selected_fixes: Option<&[FixPlan]>,
+    preview_report: Option<&str>,
+    previews: Option<&[maximus_core::PreviewedFix]>,
+) -> Result<(), CliError> {
+    match flags.output_format {
+        crate::args::OutputFormat::Text => {
+            println!(
+                "{}",
+                report_text::format_fix_result(
+                    flags.dry_run,
+                    target_dir,
+                    initial,
+                    applied,
+                    final_result,
+                    selected_fixes,
+                    preview_report,
+                )
+            );
+        }
+        crate::args::OutputFormat::Json => {
+            println!(
+                "{}",
+                report_json::render_fix_result(
+                    flags.dry_run,
+                    target_dir,
+                    initial,
+                    applied,
+                    final_result,
+                    previews,
+                )?
+            );
+        }
+        crate::args::OutputFormat::Markdown => {
+            println!(
+                "{}",
+                report_markdown::format_fix_result(
+                    flags.dry_run,
+                    target_dir,
+                    initial,
+                    applied,
+                    final_result,
+                    selected_fixes,
+                    preview_report,
+                )
+            );
+        }
+        crate::args::OutputFormat::Sarif => {
+            println!(
+                "{}",
+                report_sarif::render_fix_result(
+                    flags.dry_run,
+                    target_dir,
+                    initial,
+                    applied,
+                    final_result,
+                    previews,
+                )?
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn resolve_effective_config(
@@ -327,6 +414,12 @@ fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), Cl
     if flags.diff && !flags.dry_run {
         return Err(CliError::InvalidArguments(
             "Option \"--diff\" requires \"fix --dry-run\".".to_string(),
+        ));
+    }
+
+    if command == Some("fix") && matches!(flags.output_format, OutputFormat::Sarif) {
+        return Err(CliError::InvalidArguments(
+            "Option \"--format sarif\" is only available for \"audit\" and \"doctor\".".to_string(),
         ));
     }
 
