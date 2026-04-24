@@ -1,0 +1,166 @@
+name: Release Candidate Core Verification
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - package.json
+      - npm/**/package.json
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Commit SHA to verify as a release candidate
+        required: true
+        type: string
+
+concurrency:
+  group: release-candidate-${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify_release_candidate:
+    name: Verify Release Candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NPM_CONFIG_CACHE: .npm-cache
+
+    steps:
+      - name: Validate manual target SHA
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          if ! [[ "$TARGET_SHA" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo "target_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout pinned release candidate commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Confirm checked out commit matches target SHA
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$TARGET_SHA" ]; then
+            echo "Expected checkout to resolve to $TARGET_SHA, got $checked_out_sha"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Resolve release candidate metadata
+        id: meta
+        env:
+          RELEASE_EVENT_BEFORE: ${{ github.event.before }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: node ./scripts/release-candidate-metadata.mjs
+
+      - name: Ensure release tag does not already exist
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "Release tag $RELEASE_TAG already exists."
+            exit 1
+          fi
+
+      - name: Verify package manifest alignment
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+
+          const rootManifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const versionMismatches = [];
+
+          for (const relativePath of packageManifestPaths) {
+            const manifest = JSON.parse(fs.readFileSync(relativePath, "utf8"));
+            if (manifest.version !== rootManifest.version) {
+              versionMismatches.push(`${relativePath}:${manifest.version}`);
+            }
+          }
+
+          const optionalDependencyMismatches = Object.entries(rootManifest.optionalDependencies ?? {})
+            .filter(([, version]) => version !== rootManifest.version)
+            .map(([name, version]) => `${name}@${version}`);
+
+          if (versionMismatches.length > 0 || optionalDependencyMismatches.length > 0) {
+            throw new Error(
+              [
+                versionMismatches.length > 0
+                  ? `Manifest version mismatches: ${versionMismatches.join(", ")}`
+                  : "",
+                optionalDependencyMismatches.length > 0
+                  ? `optionalDependencies mismatches: ${optionalDependencyMismatches.join(", ")}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" | "),
+            );
+          }
+          NODE
+
+      - name: Validate release wiring contract
+        run: node ./scripts/validate-rust-release-wiring.mjs
+
+      - name: Run focused release wiring tests
+        run: node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/release-candidate-metadata.test.js test/release-helpers.test.js test/npm-error-classifiers.test.js test/bump-release-version.test.js
+
+      - name: Run node test suite
+        run: npm test
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Run Rust workspace tests
+        run: cargo test --workspace
+
+      - name: Pack root wrapper
+        shell: bash
+        run: |
+          pack_root="$RUNNER_TEMP/maximus-release-candidate-pack"
+          rm -rf "$pack_root"
+          mkdir -p "$pack_root"
+          env npm_config_cache="$pack_root/.npm-cache" npm pack --json --pack-destination "$pack_root" > "$pack_root/pack.json"
+
+      - name: Smoke packed wrapper
+        run: node ./scripts/run-packed-wrapper-smoke.mjs "$RUNNER_TEMP/maximus-release-candidate-pack/pack.json" ./test/fixtures/clean-project
+
+      - name: Publish release candidate summary
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+          VERIFIED_SHA: ${{ steps.meta.outputs.verifiedSha }}
+          VERIFY_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.ref_name }}
+        run: |
+          {
+            echo "### Release candidate core checks passed"
+            echo
+            echo "- ref: \`${VERIFY_REF}\`"
+            echo "- verified commit: \`${VERIFIED_SHA}\`"
+            echo "- version: \`${RELEASE_VERSION}\`"
+            echo "- next tag: \`${RELEASE_TAG}\`"
+            echo
+            echo "Before creating the real tag, also confirm the same commit is green in the \`maximus-dev\` workflow."
+            echo "Create the release tag only after maintainer confirmation and only from \`${VERIFIED_SHA}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
