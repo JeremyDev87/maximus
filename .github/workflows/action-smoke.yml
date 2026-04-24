@@ -66,14 +66,17 @@ jobs:
 
       - name: Assert checked out release target
         shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ -n "${{ inputs.release_sha }}" ]]; then
-            test "$(git rev-parse HEAD)" = "${{ inputs.release_sha }}"
-            git fetch --depth=1 origin "refs/tags/${{ inputs.release_tag }}:refs/tags/${{ inputs.release_tag }}"
-            test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "${{ inputs.release_sha }}"
+          if [[ -n "$RELEASE_SHA" ]]; then
+            test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+            git fetch --depth=1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_SHA"
           else
             checked_ref="$(git describe --tags --exact-match HEAD)"
-            test "$checked_ref" = "${{ inputs.release_tag }}"
+            test "$checked_ref" = "$RELEASE_TAG"
           fi
 
       # GitHub Actions does not allow dynamic expressions in step-level `uses:`.

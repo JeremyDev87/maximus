@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendFile } from "node:fs/promises";
 import { assertReleaseWorkflowContext } from "./assert-release-workflow-context.mjs";
+import { resolveReleasePlan } from "./lib/release.mjs";
 
 export async function buildReleasePlan({
   repoRoot = process.cwd(),
@@ -17,14 +18,12 @@ export async function buildReleasePlan({
     githubRefName,
     requestedReleaseTag,
   });
-
-  const isPrerelease = context.packageVersion.includes("-");
-  const distTag = isPrerelease ? "next" : "latest";
+  const plan = resolveReleasePlan(context.releaseTag);
 
   return {
     ...context,
-    distTag,
-    isPrerelease,
+    distTag: plan.npmDistTag,
+    isPrerelease: plan.isPrerelease,
   };
 }
 

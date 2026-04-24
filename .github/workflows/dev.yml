@@ -16,6 +16,8 @@ on:
       - ".github/actions/marketplace-wrapper/action.yml"
       - ".github/workflows/action-smoke.yml"
       - ".github/workflows/dev.yml"
+      - ".github/workflows/manual-release-bump.yml"
+      - ".github/workflows/release-candidate.yml"
       - ".github/workflows/release.yml"
       - ".github/workflows/release-drafter.yml"
       - ".github/workflows/rust-release-binaries.yml"
@@ -42,6 +44,8 @@ on:
       - ".github/actions/marketplace-wrapper/action.yml"
       - ".github/workflows/action-smoke.yml"
       - ".github/workflows/dev.yml"
+      - ".github/workflows/manual-release-bump.yml"
+      - ".github/workflows/release-candidate.yml"
       - ".github/workflows/release.yml"
       - ".github/workflows/release-drafter.yml"
       - ".github/workflows/rust-release-binaries.yml"
@@ -221,4 +225,4 @@ jobs:
         run: node ./scripts/validate-rust-release-wiring.mjs
 
       - name: Run focused release wiring test
-        run: node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/npm-error-classifiers.test.js
+        run: node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/release-candidate-metadata.test.js test/release-helpers.test.js test/npm-error-classifiers.test.js test/bump-release-version.test.js

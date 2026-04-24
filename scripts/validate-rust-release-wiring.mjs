@@ -18,6 +18,8 @@ const requiredFiles = {
   devWorkflow: ".github/workflows/dev.yml",
   actionSmokeWorkflow: ".github/workflows/action-smoke.yml",
   releaseWorkflow: ".github/workflows/release.yml",
+  releaseCandidateWorkflow: ".github/workflows/release-candidate.yml",
+  manualReleaseBumpWorkflow: ".github/workflows/manual-release-bump.yml",
   rustReleaseWorkflow: ".github/workflows/rust-release-binaries.yml",
   releaseDrafterWorkflow: ".github/workflows/release-drafter.yml",
   releaseDrafterConfig: ".github/release-drafter.yml",
@@ -28,6 +30,9 @@ const requiredFiles = {
   releaseRunbook: "docs/release-operator-runbook.md",
   releaseContextAssertion: "scripts/assert-release-workflow-context.mjs",
   releasePlan: "scripts/release-plan.mjs",
+  releaseCandidateMetadata: "scripts/release-candidate-metadata.mjs",
+  releaseHelpers: "scripts/lib/release.mjs",
+  releaseBumpScript: "scripts/bump-release-version.mjs",
   npmLookupClassifier: "scripts/classify-npm-lookup-error.mjs",
   npmPublishClassifier: "scripts/classify-npm-publish-error.mjs",
   nativeRuntimeAssertion: "scripts/assert-installed-native-runtime.mjs",
@@ -40,6 +45,8 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   validateMarketplaceWrapperAction(fileContents.marketplaceWrapperAction);
   validateDevWorkflow(fileContents.devWorkflow);
   validateActionSmokeWorkflow(fileContents.actionSmokeWorkflow);
+  validateReleaseCandidateWorkflow(fileContents.releaseCandidateWorkflow);
+  validateManualReleaseBumpWorkflow(fileContents.manualReleaseBumpWorkflow);
   validateRustReleaseWorkflow(fileContents.rustReleaseWorkflow);
   validateReleaseWorkflow(fileContents.releaseWorkflow);
   validateReleaseDrafterWorkflow(fileContents.releaseDrafterWorkflow);
@@ -50,6 +57,9 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   validateReleaseRunbook(fileContents.releaseRunbook);
   validateReleaseContextAssertion(fileContents.releaseContextAssertion);
   validateReleasePlanScript(fileContents.releasePlan);
+  validateReleaseCandidateMetadata(fileContents.releaseCandidateMetadata);
+  validateReleaseHelpers(fileContents.releaseHelpers);
+  validateReleaseBumpScript(fileContents.releaseBumpScript);
   validateNpmLookupClassifier(fileContents.npmLookupClassifier);
   validateNpmPublishClassifier(fileContents.npmPublishClassifier);
   validateNativeRuntimeAssertion(fileContents.nativeRuntimeAssertion);
@@ -97,6 +107,8 @@ function validateDevWorkflow(devText) {
     "action.yml",
     ".github/actions/marketplace-wrapper/action.yml",
     ".github/workflows/action-smoke.yml",
+    ".github/workflows/manual-release-bump.yml",
+    ".github/workflows/release-candidate.yml",
     ".github/workflows/release.yml",
     ".github/workflows/rust-release-binaries.yml",
     "docs/github-action-marketplace.md",
@@ -111,7 +123,7 @@ function validateDevWorkflow(devText) {
 
   assertContains(devText, "release-wiring:", "release wiring job");
   assertContains(devText, "node ./scripts/validate-rust-release-wiring.mjs", "release wiring validation command");
-  assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/npm-error-classifiers.test.js", "release wiring node test command");
+  assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/release-candidate-metadata.test.js test/release-helpers.test.js test/npm-error-classifiers.test.js test/bump-release-version.test.js", "release wiring node test command");
 }
 
 function validateMarketplaceWrapperAction(actionText) {
@@ -130,14 +142,24 @@ function validateActionSmokeWorkflow(actionSmokeText) {
   assertContains(actionSmokeText, "release_tag:", "action smoke release tag input");
   assertContains(actionSmokeText, "release_sha:", "action smoke release sha input");
   assertContains(actionSmokeText, "ref: ${{ inputs.release_sha || inputs.release_tag }}", "action smoke checkout ref");
-  assertContains(actionSmokeText, 'test "$(git rev-parse HEAD)" = "${{ inputs.release_sha }}"', "action smoke sha comparison");
-  assertContains(actionSmokeText, 'git fetch --depth=1 origin "refs/tags/${{ inputs.release_tag }}:refs/tags/${{ inputs.release_tag }}"', "action smoke tag fetch");
-  assertContains(actionSmokeText, 'test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "${{ inputs.release_sha }}"', "action smoke tag to sha comparison");
+  assertContains(actionSmokeText, "RELEASE_SHA: ${{ inputs.release_sha }}", "action smoke release sha env handoff");
+  assertContains(actionSmokeText, "RELEASE_TAG: ${{ inputs.release_tag }}", "action smoke release tag env handoff");
+  assertContains(actionSmokeText, 'test "$(git rev-parse HEAD)" = "$RELEASE_SHA"', "action smoke sha comparison");
+  assertContains(actionSmokeText, 'git fetch --depth=1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"', "action smoke tag fetch");
+  assertContains(actionSmokeText, 'test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_SHA"', "action smoke tag to sha comparison");
   assertContains(actionSmokeText, 'git describe --tags --exact-match HEAD', "action smoke exact tag assertion");
   assertContains(actionSmokeText, "uses: ./", "action smoke local tag checkout usage");
   assertContains(actionSmokeText, "uses: ./.github/actions/marketplace-wrapper", "action smoke marketplace wrapper usage");
   assertContains(actionSmokeText, "dynamic expressions in step-level `uses:`", "action smoke dynamic uses rationale");
   assertContains(actionSmokeText, "registry-url: ${{ inputs.registry_url }}", "action smoke registry passthrough");
+  assert.ok(
+    !actionSmokeText.includes('"${{ inputs.release_sha }}"'),
+    "action smoke workflow should not interpolate release_sha directly inside bash",
+  );
+  assert.ok(
+    !actionSmokeText.includes('"${{ inputs.release_tag }}"'),
+    "action smoke workflow should not interpolate release_tag directly inside bash",
+  );
   assert.ok(
     !actionSmokeText.includes("uses: JeremyDev87/maximus@v0.1.0"),
     "action smoke should not pin a static published action tag",
@@ -155,6 +177,45 @@ function validateRustReleaseWorkflow(rustReleaseText) {
   for (const packageName of platformPackages) {
     assertContains(rustReleaseText, packageName, `rust release matrix entry for ${packageName}`);
   }
+}
+
+function validateReleaseCandidateWorkflow(releaseCandidateText) {
+  assertContains(releaseCandidateText, "workflow_dispatch:", "release candidate manual trigger");
+  assertContains(releaseCandidateText, "target_sha:", "release candidate target sha input");
+  assertContains(releaseCandidateText, "TARGET_SHA: ${{ inputs.target_sha }}", "release candidate target sha env handoff");
+  assertContains(releaseCandidateText, "Ensure release tag does not already exist", "release candidate tag guard");
+  assertContains(releaseCandidateText, "Verify package manifest alignment", "release candidate manifest alignment gate");
+  assertContains(releaseCandidateText, "node ./scripts/release-candidate-metadata.mjs", "release candidate metadata resolver");
+  assertContains(releaseCandidateText, "node ./scripts/validate-rust-release-wiring.mjs", "release candidate release wiring validation");
+  assertContains(releaseCandidateText, "test/release-candidate-metadata.test.js", "release candidate metadata test coverage");
+  assertContains(releaseCandidateText, "test/release-helpers.test.js", "release helper test coverage");
+  assertContains(releaseCandidateText, "test/bump-release-version.test.js", "release candidate bump script test coverage");
+  assertContains(releaseCandidateText, "cargo test --workspace", "release candidate rust tests");
+  assertContains(releaseCandidateText, "node ./scripts/run-packed-wrapper-smoke.mjs", "release candidate packed wrapper smoke");
+  assert.ok(
+    !releaseCandidateText.includes('"${{ inputs.target_sha }}"'),
+    "release candidate workflow should not interpolate target_sha directly inside bash",
+  );
+  assert.ok(
+    !releaseCandidateText.includes("shouldVerify"),
+    "release candidate workflow should not skip verification when only platform manifests changed",
+  );
+}
+
+function validateManualReleaseBumpWorkflow(manualReleaseBumpText) {
+  assertContains(manualReleaseBumpText, "workflow_dispatch:", "manual bump workflow trigger");
+  assertContains(manualReleaseBumpText, "dry_run:", "manual bump dry-run input");
+  assertContains(manualReleaseBumpText, "INPUT_TAG: ${{ inputs.tag }}", "manual bump tag env handoff");
+  assertContains(manualReleaseBumpText, 'tag="$INPUT_TAG"', "manual bump tag shell variable usage");
+  assertContains(manualReleaseBumpText, "tag must look like v1.2.3", "manual bump tag validation");
+  assertContains(manualReleaseBumpText, "node ./scripts/bump-release-version.mjs", "manual bump script usage");
+  assertContains(manualReleaseBumpText, "gh workflow run dev.yml --ref", "manual bump CI dispatch");
+  assertContains(manualReleaseBumpText, "skip-changelog", "manual bump skip-changelog label");
+  assertContains(manualReleaseBumpText, "Unable to create a draft PR", "manual bump hard-fail PR creation");
+  assert.ok(
+    !manualReleaseBumpText.includes('tag="${{ inputs.tag }}"'),
+    "manual bump workflow should not interpolate input tag directly inside bash",
+  );
 }
 
 function validateReleaseWorkflow(releaseText) {
@@ -279,9 +340,30 @@ function validateReleaseContextAssertion(releaseContextAssertionText) {
 
 function validateReleasePlanScript(releasePlanText) {
   assertContains(releasePlanText, "distTag", "release plan dist-tag logic");
-  assertContains(releasePlanText, "next", "release plan prerelease dist-tag");
-  assertContains(releasePlanText, "latest", "release plan stable dist-tag");
   assertContains(releasePlanText, "isPrerelease", "release plan prerelease flag");
+  assertContains(releasePlanText, 'resolveReleasePlan', "release plan helper wiring");
+}
+
+function validateReleaseCandidateMetadata(releaseCandidateMetadataText) {
+  assertContains(releaseCandidateMetadataText, "assertReleaseUpgrade", "release candidate upgrade assertion");
+  assertContains(releaseCandidateMetadataText, "github.event.before must contain package.json for release upgrade validation", "release candidate push fail-closed guard");
+  assertContains(releaseCandidateMetadataText, "merge-base", "release candidate master ancestry gate");
+  assertContains(releaseCandidateMetadataText, "refs/remotes/origin/master", "release candidate master ref gate");
+  assertContains(releaseCandidateMetadataText, "`${verifiedSha}^`", "release candidate parent version check");
+  assertContains(releaseCandidateMetadataText, "target_sha must already be reachable from origin/master before tagging", "release candidate unmerged target guard");
+}
+
+function validateReleaseHelpers(releaseHelpersText) {
+  assertContains(releaseHelpersText, 'npmDistTag: isPrerelease ? "next" : "latest"', "release helper dist-tag mapping");
+  assertContains(releaseHelpersText, "compareReleaseVersions", "release helper version comparison");
+  assertContains(releaseHelpersText, "assertReleaseUpgrade", "release helper upgrade assertion");
+  assertContains(releaseHelpersText, "PRERELEASE_IDENTIFIER_PATTERN", "release helper strict prerelease identifiers");
+}
+
+function validateReleaseBumpScript(releaseBumpScriptText) {
+  assertContains(releaseBumpScriptText, "packageManifestPaths", "release bump manifest path list");
+  assertContains(releaseBumpScriptText, "createManualBumpBranchName", "release bump branch naming");
+  assertContains(releaseBumpScriptText, "assertReleaseUpgrade", "release bump upgrade guard");
 }
 
 function validateNpmLookupClassifier(lookupClassifierText) {

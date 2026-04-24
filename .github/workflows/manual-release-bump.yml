@@ -1,0 +1,317 @@
+name: Manual Release Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Target release tag or version, for example v0.1.1 or 0.1.1-alpha.2
+        required: true
+        type: string
+      dry_run:
+        description: Validate and prepare the bump without pushing a branch or opening a PR
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: manual-release-bump-master-${{ startsWith(inputs.tag, 'v') && inputs.tag || format('v{0}', inputs.tag) }}
+  cancel-in-progress: false
+
+jobs:
+  bump_release_version:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "24"
+
+      - name: Resolve bump metadata
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="$INPUT_TAG"
+          if [[ "$tag" != v* ]]; then
+            tag="v$tag"
+          fi
+
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "tag must look like v1.2.3 or v1.2.3-alpha.1"
+            exit 1
+          fi
+
+          current_version=$(node -p "require('./package.json').version")
+          expected_version="${tag#v}"
+          branch=$(node --input-type=module -e "import { createManualBumpBranchName } from './scripts/bump-release-version.mjs'; console.log(createManualBumpBranchName(process.argv[1]));" "$tag")
+
+          {
+            echo "currentVersion=$current_version"
+            echo "version=$expected_version"
+            echo "tag=$tag"
+            echo "branch=$branch"
+            echo "title=chore: ${expected_version} 수동 bump"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Apply version bump
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: node ./scripts/bump-release-version.mjs "$RELEASE_TAG"
+
+      - name: Verify changed files before package verification
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+
+          const changedFiles = execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" })
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .sort();
+          const expectedFiles = [...packageManifestPaths].sort();
+
+          if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles)) {
+            throw new Error(`Unexpected changed files: ${changedFiles.join(", ")}`);
+          }
+          NODE
+
+      - name: Verify package
+        run: npm test
+
+      - name: Verify changed files after package verification
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+
+          const changedFiles = execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" })
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .sort();
+          const expectedFiles = [...packageManifestPaths].sort();
+
+          if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles)) {
+            throw new Error(`Unexpected changed files after verification: ${changedFiles.join(", ")}`);
+          }
+          NODE
+
+      - name: Stop after dry run
+        if: ${{ inputs.dry_run }}
+        run: echo "Dry run requested; skipping branch push and PR creation."
+
+      - name: Configure git author
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ensure skip-changelog label exists
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          if gh label list --search "skip-changelog" --json name --jq 'map(select(.name == "skip-changelog")) | length > 0' | grep -q true; then
+            exit 0
+          fi
+
+          gh label create "skip-changelog" \
+            --color "6E7781" \
+            --description "Exclude automated release prep PRs from release notes."
+
+      - name: Resolve existing open PR
+        if: ${{ !inputs.dry_run }}
+        id: existing_pr
+        shell: bash
+        env:
+          BUMP_BRANCH: ${{ steps.meta.outputs.branch }}
+          EXPECTED_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          pr_json=$(gh pr list \
+            --head "$BUMP_BRANCH" \
+            --state open \
+            --json number,url,baseRefName,labels)
+
+          pr_number=$(printf '%s' "$pr_json" | jq -r '.[0].number // empty')
+          pr_url=$(printf '%s' "$pr_json" | jq -r '.[0].url // empty')
+          pr_base=$(printf '%s' "$pr_json" | jq -r '.[0].baseRefName // empty')
+          has_skip_changelog=$(printf '%s' "$pr_json" | jq -r 'if (.[0].labels // []) | map(.name) | index("skip-changelog") then "true" else "false" end')
+
+          if [ -n "$pr_number" ] && [ "$pr_base" != "master" ]; then
+            echo "Existing PR $pr_url targets base '$pr_base', expected 'master'."
+            exit 1
+          fi
+
+          if [ -n "$pr_number" ]; then
+            git fetch origin \
+              "refs/heads/master:refs/remotes/origin/master" \
+              "refs/heads/${BUMP_BRANCH}:refs/remotes/origin/${BUMP_BRANCH}"
+
+            # shellcheck disable=SC2016
+            node --input-type=module -e '
+              import { execFileSync } from "node:child_process";
+              import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+
+              const branch = process.argv[1];
+              const expectedVersion = process.argv[2];
+              const diffFiles = execFileSync(
+                "git",
+                ["diff", "--name-only", `refs/remotes/origin/master...refs/remotes/origin/${branch}`],
+                { encoding: "utf8" },
+              )
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .sort();
+              const expectedFiles = [...packageManifestPaths].sort();
+
+              if (JSON.stringify(diffFiles) !== JSON.stringify(expectedFiles)) {
+                throw new Error(`Existing PR is not a manifest-only bump: ${diffFiles.join(", ")}`);
+              }
+
+              for (const relativePath of packageManifestPaths) {
+                const manifest = JSON.parse(
+                  execFileSync("git", ["show", `refs/remotes/origin/${branch}:${relativePath}`], {
+                    encoding: "utf8",
+                  }),
+                );
+
+                if (manifest.version !== expectedVersion) {
+                  throw new Error(`${relativePath} version mismatch: ${manifest.version}`);
+                }
+              }
+            ' "$BUMP_BRANCH" "$EXPECTED_VERSION"
+          fi
+
+          if [ -n "$pr_number" ] && [ "$has_skip_changelog" != "true" ]; then
+            gh pr edit "$pr_number" --add-label skip-changelog
+          fi
+
+          {
+            echo "number=$pr_number"
+            echo "url=$pr_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare bump branch
+        if: ${{ !inputs.dry_run && steps.existing_pr.outputs.number == '' }}
+        shell: bash
+        env:
+          BUMP_BRANCH: ${{ steps.meta.outputs.branch }}
+          BUMP_TITLE: ${{ steps.meta.outputs.title }}
+        run: |
+          lease_args=()
+
+          if git ls-remote --exit-code --heads origin "$BUMP_BRANCH" >/dev/null 2>&1; then
+            echo "Remote branch $BUMP_BRANCH already exists; refreshing it with the verified bump commit."
+            git fetch origin "refs/heads/${BUMP_BRANCH}:refs/remotes/origin/${BUMP_BRANCH}"
+            lease_args+=(--force-with-lease="refs/heads/${BUMP_BRANCH}:$(git rev-parse "refs/remotes/origin/${BUMP_BRANCH}")")
+          fi
+
+          git switch -C "$BUMP_BRANCH"
+          git add package.json npm/*/package.json
+          git commit -m "$BUMP_TITLE"
+          git push "${lease_args[@]}" -u origin "$BUMP_BRANCH"
+
+      - name: Dispatch CI for bump branch
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          BUMP_BRANCH: ${{ steps.meta.outputs.branch }}
+        run: gh workflow run dev.yml --ref "$BUMP_BRANCH"
+
+      - name: Create or reuse draft PR
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          BUMP_BRANCH: ${{ steps.meta.outputs.branch }}
+          BUMP_TITLE: ${{ steps.meta.outputs.title }}
+          CURRENT_VERSION: ${{ steps.meta.outputs.currentVersion }}
+          DEFAULT_GH_TOKEN: ${{ github.token }}
+          EXISTING_PR_URL: ${{ steps.existing_pr.outputs.url }}
+          PR_CREATE_TOKEN: ${{ secrets.MAXIMUS_RELEASE_BOT_TOKEN }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          printf '%s\n' \
+            "## 배경 / Background" \
+            "" \
+            "- manual release bump workflow로 \`${CURRENT_VERSION}\`에서 \`${RELEASE_VERSION}\`으로 승격합니다." \
+            "- 실제 tag / publish는 이 PR merge 이후 별도 \`release.yml\` workflow에서 진행합니다." \
+            "" \
+            "## 변경 사항 / Changes" \
+            "" \
+            "- root wrapper와 platform package manifest version을 \`${RELEASE_VERSION}\`으로 맞췄습니다." \
+            "- root optionalDependencies도 같은 버전으로 정렬했습니다." \
+            "" \
+            "## 검증 / Verification" \
+            "" \
+            "- \`node ./scripts/bump-release-version.mjs ${RELEASE_TAG}\`" \
+            "- \`npm test\`" \
+            "- bump branch에 대해 \`maximus-dev\` workflow를 dispatch했습니다." \
+            "" \
+            "## 리스크 / Risks" \
+            "" \
+            "- 실제 tag / publish는 아직 실행하지 않았습니다." \
+            "- merge 후 \`Release Candidate Core Verification\` 과 같은 commit의 \`maximus-dev\` workflow 결과를 확인한 뒤 tag를 생성해야 합니다." \
+            > pr-body.md
+
+          if [ -n "$PR_CREATE_TOKEN" ]; then
+            export GH_TOKEN="$PR_CREATE_TOKEN"
+            token_source="MAXIMUS_RELEASE_BOT_TOKEN"
+          else
+            export GH_TOKEN="$DEFAULT_GH_TOKEN"
+            token_source="github.token"
+          fi
+
+          if [ -n "$EXISTING_PR_URL" ]; then
+            echo "Reusing existing PR: $EXISTING_PR_URL"
+            exit 0
+          fi
+
+          if pr_url=$(gh pr create \
+            --draft \
+            --base master \
+            --head "$BUMP_BRANCH" \
+            --title "$BUMP_TITLE" \
+            --body-file pr-body.md \
+            --label skip-changelog 2>/tmp/maximus-gh-pr-create-error.txt); then
+            echo "Created draft PR: $pr_url"
+            exit 0
+          fi
+
+          compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/master...${BUMP_BRANCH}?expand=1"
+
+          {
+            echo "### Manual release bump failed to create a PR"
+            echo
+            echo "The bump branch was pushed, but the workflow could not open a draft PR."
+            echo
+            echo "- branch: \`${BUMP_BRANCH}\`"
+            echo "- title: \`${BUMP_TITLE}\`"
+            echo "- token source: \`$token_source\`"
+            echo "- compare URL: $compare_url"
+            echo
+            echo "Either enable repository Actions permission to create pull requests, or configure \`MAXIMUS_RELEASE_BOT_TOKEN\` with pull request creation permission."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat /tmp/maximus-gh-pr-create-error.txt
+          echo "::error::Unable to create a draft PR for $BUMP_BRANCH. See the step summary for required repository or token changes."
+          exit 1
