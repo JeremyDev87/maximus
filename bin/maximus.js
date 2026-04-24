@@ -192,13 +192,10 @@ function parseCompatInvocation(args) {
     };
   }
 
-  const [command, ...rest] = args;
   if (
-    command === "help"
-    || command === "--help"
-    || command === "-h"
-    || rest.includes("--help")
-    || rest.includes("-h")
+    args[0] === "help"
+    || args.includes("--help")
+    || args.includes("-h")
   ) {
     return {
       mode: "compat-help",
@@ -207,19 +204,16 @@ function parseCompatInvocation(args) {
     };
   }
 
+  let command;
   let pathArg;
   const unsupportedFlags = [];
-  const valueFlags = new Set(["--only", "--skip", "--fail-on", "--fix-id", "--fix-prefix"]);
+  const commandNames = new Set(["audit", "doctor", "fix"]);
+  const valueFlags = new Set(["--only", "--skip", "--fail-on", "--fix-id", "--fix-prefix", "--format"]);
   const passthroughFlags = new Set(["--dry-run", "--json"]);
-  const isFixCommand = command === "fix";
-  const hasDryRun = rest.includes("--dry-run");
 
-  if (isFixCommand && !hasDryRun) {
-    unsupportedFlags.push("fix (without --dry-run)");
-  }
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const token = rest[index];
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    const valueFlagWithEquals = Array.from(valueFlags).find((flag) => token.startsWith(`${flag}=`));
 
     if (valueFlags.has(token)) {
       unsupportedFlags.push(token);
@@ -227,8 +221,13 @@ function parseCompatInvocation(args) {
       continue;
     }
 
-    if (token === "--diff") {
-      unsupportedFlags.push(token);
+    if (valueFlagWithEquals) {
+      unsupportedFlags.push(valueFlagWithEquals);
+      continue;
+    }
+
+    if (token === "--diff" || token.startsWith("--diff=")) {
+      unsupportedFlags.push("--diff");
       continue;
     }
 
@@ -236,9 +235,21 @@ function parseCompatInvocation(args) {
       continue;
     }
 
+    if (command === undefined && commandNames.has(token)) {
+      command = token;
+      continue;
+    }
+
     if (pathArg === undefined) {
       pathArg = token;
     }
+  }
+
+  const isFixCommand = command === "fix";
+  const hasDryRun = args.includes("--dry-run");
+
+  if (isFixCommand && !hasDryRun) {
+    unsupportedFlags.push("fix (without --dry-run)");
   }
 
   return {
@@ -359,7 +370,7 @@ function formatCompatHelp() {
     "  maximus fix [path] --dry-run [--json]",
     "  maximus help",
     "",
-    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, and `--fix-prefix` require the Rust runtime, and `fix` is only available with `--dry-run`.",
+    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, `--fix-prefix`, and `--format` require the Rust runtime, and `fix` is only available with `--dry-run`.",
   ].join("\n");
 }
 

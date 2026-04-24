@@ -9,9 +9,23 @@ pub struct Flags {
     pub fix_ids: Vec<String>,
     pub fix_prefixes: Vec<String>,
     pub help: bool,
-    pub json: bool,
+    pub output_format: OutputFormat,
     pub only_checks: Option<Vec<String>>,
     pub skip_checks: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    Markdown,
+    Sarif,
+}
+
+impl Default for OutputFormat {
+    fn default() -> Self {
+        Self::Text
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -24,6 +38,8 @@ pub struct ParsedArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgsError {
     EmptyValue(&'static str),
+    ConflictingValue(&'static str, &'static str),
+    InvalidValue(&'static str, String, &'static str),
     MissingValue(&'static str),
 }
 
@@ -31,6 +47,14 @@ impl Display for ArgsError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyValue(flag) => write!(f, "Option \"{flag}\" requires a non-empty value."),
+            Self::ConflictingValue(left, right) => write!(
+                f,
+                "Option \"{left}\" cannot be combined with option \"{right}\"."
+            ),
+            Self::InvalidValue(flag, value, expected) => write!(
+                f,
+                "Option \"{flag}\" received unsupported value \"{value}\". Use one of: {expected}."
+            ),
             Self::MissingValue(flag) => write!(f, "Option \"{flag}\" requires a value."),
         }
     }
@@ -43,6 +67,7 @@ where
 {
     let mut args = Vec::new();
     let mut flags = Flags::default();
+    let mut output_format_source = None;
     let mut tokens = argv.into_iter().map(Into::into);
 
     while let Some(token) = tokens.next() {
@@ -71,6 +96,16 @@ where
                     .get_or_insert_with(Vec::new)
                     .extend(values);
             }
+            Some("--format") => {
+                let value = next_option_value(tokens.next(), "--format")?;
+                let output_format = parse_output_format(&value)?;
+                set_output_format(
+                    &mut flags,
+                    &mut output_format_source,
+                    output_format,
+                    "--format",
+                )?;
+            }
             Some("--skip") => {
                 let value = next_option_value(tokens.next(), "--skip")?;
                 let values = split_csv_values(&value, "--skip")?;
@@ -79,7 +114,14 @@ where
                     .get_or_insert_with(Vec::new)
                     .extend(values);
             }
-            Some("--json") => flags.json = true,
+            Some("--json") => {
+                set_output_format(
+                    &mut flags,
+                    &mut output_format_source,
+                    OutputFormat::Json,
+                    "--json",
+                )?;
+            }
             Some("--help") | Some("-h") => flags.help = true,
             _ => args.push(token),
         }
@@ -125,11 +167,43 @@ fn split_csv_values(value: &OsString, flag: &'static str) -> Result<Vec<String>,
     Ok(values)
 }
 
+fn parse_output_format(value: &OsString) -> Result<OutputFormat, ArgsError> {
+    match value.to_string_lossy().as_ref() {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        "markdown" => Ok(OutputFormat::Markdown),
+        "sarif" => Ok(OutputFormat::Sarif),
+        value => Err(ArgsError::InvalidValue(
+            "--format",
+            value.to_string(),
+            "text, json, markdown, sarif",
+        )),
+    }
+}
+
+fn set_output_format(
+    flags: &mut Flags,
+    source: &mut Option<&'static str>,
+    output_format: OutputFormat,
+    flag: &'static str,
+) -> Result<(), ArgsError> {
+    if source.is_some() && flags.output_format != output_format {
+        return Err(ArgsError::ConflictingValue(
+            source.unwrap_or("--format"),
+            flag,
+        ));
+    }
+
+    flags.output_format = output_format;
+    *source = Some(flag);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
 
-    use super::{parse_args, ArgsError, Flags, ParsedArgs};
+    use super::{parse_args, ArgsError, Flags, OutputFormat, ParsedArgs};
 
     #[test]
     fn parse_args_collects_known_flags_and_positionals() {
@@ -148,7 +222,7 @@ mod tests {
                     fix_ids: Vec::new(),
                     fix_prefixes: Vec::new(),
                     help: false,
-                    json: true,
+                    output_format: OutputFormat::Json,
                     only_checks: None,
                     skip_checks: None,
                 },
@@ -203,6 +277,40 @@ mod tests {
         );
         assert_eq!(parsed.flags.fix_prefixes, vec!["env-example:".to_string()]);
         assert!(parsed.flags.diff);
+    }
+
+    #[test]
+    fn parse_args_collects_format_output_values() {
+        let parsed = parse_args(["audit", "--format", "markdown"]).expect("args should parse");
+        assert_eq!(parsed.flags.output_format, OutputFormat::Markdown);
+
+        let parsed = parse_args(["audit", "--format", "sarif"]).expect("args should parse");
+        assert_eq!(parsed.flags.output_format, OutputFormat::Sarif);
+
+        let parsed = parse_args(["audit", "--format", "json"]).expect("args should parse");
+        assert_eq!(parsed.flags.output_format, OutputFormat::Json);
+
+        let parsed = parse_args(["audit", "--format", "text"]).expect("args should parse");
+        assert_eq!(parsed.flags.output_format, OutputFormat::Text);
+    }
+
+    #[test]
+    fn parse_args_errors_when_output_format_flags_conflict() {
+        let error = parse_args(["audit", "--json", "--format", "markdown"])
+            .expect_err("conflicting output formats should fail");
+
+        assert_eq!(error, ArgsError::ConflictingValue("--json", "--format"));
+    }
+
+    #[test]
+    fn parse_args_errors_when_output_format_value_is_invalid() {
+        let error = parse_args(["audit", "--format", "xml"])
+            .expect_err("unknown output format should fail");
+
+        assert_eq!(
+            error,
+            ArgsError::InvalidValue("--format", "xml".to_string(), "text, json, markdown, sarif")
+        );
     }
 
     #[test]

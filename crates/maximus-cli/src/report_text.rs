@@ -11,9 +11,9 @@ pub fn format_help() -> String {
         "Bring order to chaotic configs.",
         "",
         "Usage",
-        "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-        "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-        "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+        "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+        "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+        "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
         "  maximus help",
     ]
     .join("\n")
@@ -370,9 +370,9 @@ mod tests {
                 "Bring order to chaotic configs.",
                 "",
                 "Usage",
-                "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-                "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--json]",
-                "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--json]",
+                "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+                "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
+                "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
                 "  maximus help",
             ]
             .join("\n")
