@@ -170,13 +170,115 @@ fn find_vite_config_object_start(text: &str) -> Option<usize> {
         let Some('(') = text[cursor..].chars().next() else {
             return None;
         };
+        let call_end = find_matching_delimiter(text, cursor, '(', ')')?;
         cursor = skip_ws_and_comments(text, cursor + 1);
+        if let Some(object_start) = find_arrow_returned_config_object_start(text, cursor, call_end)
+        {
+            return Some(object_start);
+        }
     }
 
     match text[cursor..].chars().next()? {
         '{' => Some(cursor),
         _ => None,
     }
+}
+
+fn find_arrow_returned_config_object_start(
+    text: &str,
+    cursor: usize,
+    call_end: usize,
+) -> Option<usize> {
+    let arrow = find_top_level_arrow(text, cursor, call_end)?;
+    let body = skip_ws_and_comments(text, arrow + 2);
+    match text[body..].chars().next()? {
+        '(' => {
+            let inner = skip_ws_and_comments(text, body + 1);
+            if text[inner..].starts_with('{') {
+                Some(inner)
+            } else {
+                None
+            }
+        }
+        '{' => find_block_returned_config_object_start(text, body),
+        _ => None,
+    }
+}
+
+fn find_block_returned_config_object_start(text: &str, block_start: usize) -> Option<usize> {
+    let block_end = find_matching_delimiter(text, block_start, '{', '}')?;
+    let mut cursor = block_start + 1;
+
+    while cursor < block_end {
+        cursor = skip_ws_and_comments(text, cursor);
+        if cursor >= block_end {
+            break;
+        }
+        if starts_with_keyword(text, cursor, "return") {
+            let value_start = skip_ws_and_comments(text, cursor + "return".len());
+            return match text[value_start..].chars().next()? {
+                '{' => Some(value_start),
+                '(' => {
+                    let inner = skip_ws_and_comments(text, value_start + 1);
+                    if text[inner..].starts_with('{') {
+                        Some(inner)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+        }
+
+        let ch = text[cursor..].chars().next()?;
+        cursor = match ch {
+            '\'' | '"' => parse_string_literal(text, cursor)?.1,
+            '`' => skip_template_literal(text, cursor)?,
+            '(' => find_matching_delimiter(text, cursor, '(', ')')? + 1,
+            '[' => find_matching_delimiter(text, cursor, '[', ']')? + 1,
+            '{' => find_matching_delimiter(text, cursor, '{', '}')? + 1,
+            _ => cursor + ch.len_utf8(),
+        };
+    }
+
+    None
+}
+
+fn find_top_level_arrow(text: &str, mut cursor: usize, limit: usize) -> Option<usize> {
+    while cursor < limit {
+        cursor = skip_ws_and_comments(text, cursor);
+        if cursor >= limit {
+            break;
+        }
+        if text[cursor..].starts_with("=>") {
+            return Some(cursor);
+        }
+
+        let ch = text[cursor..].chars().next()?;
+        match ch {
+            '\'' | '"' => {
+                let (_, next_cursor) = parse_string_literal(text, cursor)?;
+                cursor = next_cursor;
+            }
+            '`' => {
+                cursor = skip_template_literal(text, cursor)?;
+            }
+            '(' => {
+                cursor = find_matching_delimiter(text, cursor, '(', ')')? + 1;
+            }
+            '[' => {
+                cursor = find_matching_delimiter(text, cursor, '[', ']')? + 1;
+            }
+            '{' => {
+                cursor = find_matching_delimiter(text, cursor, '{', '}')? + 1;
+            }
+            _ => {
+                cursor += ch.len_utf8();
+            }
+        }
+    }
+
+    None
 }
 
 fn find_export_default_value_start(text: &str) -> Option<usize> {
