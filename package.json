@@ -1,6 +1,6 @@
 {
   "name": "@jeremyfellaz/maximus",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Canonical Rust runtime launcher for the Maximus CLI.",
   "author": "JeremyDev87",
   "type": "module",
@@ -19,10 +19,10 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@jeremyfellaz/maximus-darwin-arm64": "0.1.0",
-    "@jeremyfellaz/maximus-darwin-x64": "0.1.0",
-    "@jeremyfellaz/maximus-linux-arm64-gnu": "0.1.0",
-    "@jeremyfellaz/maximus-linux-x64-gnu": "0.1.0"
+    "@jeremyfellaz/maximus-darwin-arm64": "0.1.1",
+    "@jeremyfellaz/maximus-darwin-x64": "0.1.1",
+    "@jeremyfellaz/maximus-linux-arm64-gnu": "0.1.1",
+    "@jeremyfellaz/maximus-linux-x64-gnu": "0.1.1"
   },
   "repository": {
     "type": "git",
