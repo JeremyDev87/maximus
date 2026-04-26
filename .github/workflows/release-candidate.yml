@@ -7,6 +7,10 @@ on:
     paths:
       - package.json
       - npm/**/package.json
+      - crates/maximus-cli/Cargo.toml
+      - crates/maximus-core/Cargo.toml
+      - crates/maximus-checks/Cargo.toml
+      - Cargo.lock
   workflow_dispatch:
     inputs:
       target_sha:
@@ -87,7 +91,13 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from "node:fs";
-          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+          import {
+            packageManifestPaths,
+            readCargoLockWorkspacePackageVersions,
+            readCargoTomlPackageVersion,
+            rustCrateManifestPaths,
+            rustCrateNames,
+          } from "./scripts/bump-release-version.mjs";
 
           const rootManifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
           const versionMismatches = [];
@@ -96,6 +106,26 @@ jobs:
             const manifest = JSON.parse(fs.readFileSync(relativePath, "utf8"));
             if (manifest.version !== rootManifest.version) {
               versionMismatches.push(`${relativePath}:${manifest.version}`);
+            }
+          }
+
+          for (const relativePath of rustCrateManifestPaths) {
+            const cargoVersion = readCargoTomlPackageVersion(
+              fs.readFileSync(relativePath, "utf8"),
+              relativePath,
+            );
+            if (cargoVersion !== rootManifest.version) {
+              versionMismatches.push(`${relativePath}:${cargoVersion}`);
+            }
+          }
+
+          const cargoLockVersions = readCargoLockWorkspacePackageVersions(
+            fs.readFileSync("Cargo.lock", "utf8"),
+            rustCrateNames,
+          );
+          for (const packageName of rustCrateNames) {
+            if (cargoLockVersions[packageName] !== rootManifest.version) {
+              versionMismatches.push(`Cargo.lock:${packageName}@${cargoLockVersions[packageName]}`);
             }
           }
 

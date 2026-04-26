@@ -181,10 +181,17 @@ function validateRustReleaseWorkflow(rustReleaseText) {
 
 function validateReleaseCandidateWorkflow(releaseCandidateText) {
   assertContains(releaseCandidateText, "workflow_dispatch:", "release candidate manual trigger");
+  assertContains(releaseCandidateText, "crates/maximus-cli/Cargo.toml", "release candidate CLI Cargo path filter");
+  assertContains(releaseCandidateText, "crates/maximus-core/Cargo.toml", "release candidate core Cargo path filter");
+  assertContains(releaseCandidateText, "crates/maximus-checks/Cargo.toml", "release candidate checks Cargo path filter");
+  assertContains(releaseCandidateText, "Cargo.lock", "release candidate Cargo lock path filter");
   assertContains(releaseCandidateText, "target_sha:", "release candidate target sha input");
   assertContains(releaseCandidateText, "TARGET_SHA: ${{ inputs.target_sha }}", "release candidate target sha env handoff");
   assertContains(releaseCandidateText, "Ensure release tag does not already exist", "release candidate tag guard");
   assertContains(releaseCandidateText, "Verify package manifest alignment", "release candidate manifest alignment gate");
+  assertContains(releaseCandidateText, "readCargoTomlPackageVersion", "release candidate Rust crate version gate");
+  assertContains(releaseCandidateText, "readCargoLockWorkspacePackageVersions", "release candidate Cargo.lock version gate");
+  assertContains(releaseCandidateText, "rustCrateManifestPaths", "release candidate Rust crate manifest list");
   assertContains(releaseCandidateText, "node ./scripts/release-candidate-metadata.mjs", "release candidate metadata resolver");
   assertContains(releaseCandidateText, "node ./scripts/validate-rust-release-wiring.mjs", "release candidate release wiring validation");
   assertContains(releaseCandidateText, "test/release-candidate-metadata.test.js", "release candidate metadata test coverage");
@@ -209,6 +216,20 @@ function validateManualReleaseBumpWorkflow(manualReleaseBumpText) {
   assertContains(manualReleaseBumpText, 'tag="$INPUT_TAG"', "manual bump tag shell variable usage");
   assertContains(manualReleaseBumpText, "tag must look like v1.2.3", "manual bump tag validation");
   assertContains(manualReleaseBumpText, "node ./scripts/bump-release-version.mjs", "manual bump script usage");
+  assertContains(manualReleaseBumpText, "versionFilePaths", "manual bump full version file allowlist");
+  assertContains(manualReleaseBumpText, "readCargoTomlPackageVersion", "manual bump existing PR Rust manifest validation");
+  assertContains(manualReleaseBumpText, "readCargoLockWorkspacePackageVersions", "manual bump existing PR Cargo.lock validation");
+  assertContains(
+    manualReleaseBumpText,
+    "package.json optionalDependencies version mismatch",
+    "manual bump existing PR optional dependency validation",
+  );
+  assertContains(
+    manualReleaseBumpText,
+    "git add package.json npm/*/package.json crates/maximus-cli/Cargo.toml crates/maximus-core/Cargo.toml crates/maximus-checks/Cargo.toml Cargo.lock",
+    "manual bump full version file staging",
+  );
+  assertContains(manualReleaseBumpText, "version-only bump", "manual bump existing PR version-only wording");
   assertContains(manualReleaseBumpText, "gh workflow run dev.yml --ref", "manual bump CI dispatch");
   assertContains(manualReleaseBumpText, "skip-changelog", "manual bump skip-changelog label");
   assertContains(manualReleaseBumpText, "Unable to create a draft PR", "manual bump hard-fail PR creation");
@@ -362,6 +383,11 @@ function validateReleaseHelpers(releaseHelpersText) {
 
 function validateReleaseBumpScript(releaseBumpScriptText) {
   assertContains(releaseBumpScriptText, "packageManifestPaths", "release bump manifest path list");
+  assertContains(releaseBumpScriptText, "versionFilePaths", "release bump full version file path list");
+  assertContains(releaseBumpScriptText, "rustCrateManifestPaths", "release bump Rust crate manifest path list");
+  assertContains(releaseBumpScriptText, "cargoLockPath", "release bump Cargo.lock path constant");
+  assertContains(releaseBumpScriptText, "updateCargoTomlPackageVersion", "release bump Cargo.toml updater");
+  assertContains(releaseBumpScriptText, "updateCargoLockWorkspacePackageVersions", "release bump Cargo.lock updater");
   assertContains(releaseBumpScriptText, "createManualBumpBranchName", "release bump branch naming");
   assertContains(releaseBumpScriptText, "assertReleaseUpgrade", "release bump upgrade guard");
 }

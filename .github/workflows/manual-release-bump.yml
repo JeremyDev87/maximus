@@ -79,14 +79,14 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { execFileSync } from "node:child_process";
-          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+          import { versionFilePaths } from "./scripts/bump-release-version.mjs";
 
           const changedFiles = execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" })
             .trim()
             .split("\n")
             .filter(Boolean)
             .sort();
-          const expectedFiles = [...packageManifestPaths].sort();
+          const expectedFiles = [...versionFilePaths].sort();
 
           if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles)) {
             throw new Error(`Unexpected changed files: ${changedFiles.join(", ")}`);
@@ -101,14 +101,14 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { execFileSync } from "node:child_process";
-          import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+          import { versionFilePaths } from "./scripts/bump-release-version.mjs";
 
           const changedFiles = execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" })
             .trim()
             .split("\n")
             .filter(Boolean)
             .sort();
-          const expectedFiles = [...packageManifestPaths].sort();
+          const expectedFiles = [...versionFilePaths].sort();
 
           if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles)) {
             throw new Error(`Unexpected changed files after verification: ${changedFiles.join(", ")}`);
@@ -168,7 +168,14 @@ jobs:
             # shellcheck disable=SC2016
             node --input-type=module -e '
               import { execFileSync } from "node:child_process";
-              import { packageManifestPaths } from "./scripts/bump-release-version.mjs";
+              import {
+                packageManifestPaths,
+                readCargoLockWorkspacePackageVersions,
+                readCargoTomlPackageVersion,
+                rustCrateManifestPaths,
+                rustCrateNames,
+                versionFilePaths,
+              } from "./scripts/bump-release-version.mjs";
 
               const branch = process.argv[1];
               const expectedVersion = process.argv[2];
@@ -181,10 +188,10 @@ jobs:
                 .split("\n")
                 .filter(Boolean)
                 .sort();
-              const expectedFiles = [...packageManifestPaths].sort();
+              const expectedFiles = [...versionFilePaths].sort();
 
               if (JSON.stringify(diffFiles) !== JSON.stringify(expectedFiles)) {
-                throw new Error(`Existing PR is not a manifest-only bump: ${diffFiles.join(", ")}`);
+                throw new Error(`Existing PR is not a version-only bump: ${diffFiles.join(", ")}`);
               }
 
               for (const relativePath of packageManifestPaths) {
@@ -196,6 +203,39 @@ jobs:
 
                 if (manifest.version !== expectedVersion) {
                   throw new Error(`${relativePath} version mismatch: ${manifest.version}`);
+                }
+
+                if (relativePath === "package.json") {
+                  const optionalDependencyMismatches = Object.entries(manifest.optionalDependencies ?? {})
+                    .filter(([, version]) => version !== expectedVersion)
+                    .map(([name, version]) => `${name}@${version}`);
+
+                  if (optionalDependencyMismatches.length > 0) {
+                    throw new Error(
+                      `package.json optionalDependencies version mismatch: ${optionalDependencyMismatches.join(", ")}`,
+                    );
+                  }
+                }
+              }
+
+              for (const relativePath of rustCrateManifestPaths) {
+                const cargoToml = execFileSync("git", ["show", `refs/remotes/origin/${branch}:${relativePath}`], {
+                  encoding: "utf8",
+                });
+                const cargoVersion = readCargoTomlPackageVersion(cargoToml, relativePath);
+
+                if (cargoVersion !== expectedVersion) {
+                  throw new Error(`${relativePath} version mismatch: ${cargoVersion}`);
+                }
+              }
+
+              const cargoLock = execFileSync("git", ["show", `refs/remotes/origin/${branch}:Cargo.lock`], {
+                encoding: "utf8",
+              });
+              const cargoLockVersions = readCargoLockWorkspacePackageVersions(cargoLock, rustCrateNames);
+              for (const packageName of rustCrateNames) {
+                if (cargoLockVersions[packageName] !== expectedVersion) {
+                  throw new Error(`Cargo.lock ${packageName} version mismatch: ${cargoLockVersions[packageName]}`);
                 }
               }
             ' "$BUMP_BRANCH" "$EXPECTED_VERSION"
@@ -226,7 +266,7 @@ jobs:
           fi
 
           git switch -C "$BUMP_BRANCH"
-          git add package.json npm/*/package.json
+          git add package.json npm/*/package.json crates/maximus-cli/Cargo.toml crates/maximus-core/Cargo.toml crates/maximus-checks/Cargo.toml Cargo.lock
           git commit -m "$BUMP_TITLE"
           git push "${lease_args[@]}" -u origin "$BUMP_BRANCH"
 
@@ -260,6 +300,7 @@ jobs:
             "" \
             "- root wrapper와 platform package manifest version을 \`${RELEASE_VERSION}\`으로 맞췄습니다." \
             "- root optionalDependencies도 같은 버전으로 정렬했습니다." \
+            "- Rust workspace crate manifest와 \`Cargo.lock\` workspace package version도 같은 버전으로 정렬했습니다." \
             "" \
             "## 검증 / Verification" \
             "" \
