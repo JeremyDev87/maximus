@@ -1,6 +1,6 @@
 {
   "name": "@jeremyfellaz/maximus-linux-arm64-gnu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Prebuilt Maximus Rust binary for linux arm64 glibc.",
   "license": "MIT",
   "repository": {
