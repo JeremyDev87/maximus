@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 pub struct Flags {
     pub diff: bool,
     pub dry_run: bool,
+    pub env_source_comments: bool,
     pub fail_on: Option<String>,
     pub fix_ids: Vec<String>,
     pub fix_prefixes: Vec<String>,
@@ -74,6 +75,7 @@ where
         match token.to_str() {
             Some("--diff") => flags.diff = true,
             Some("--dry-run") => flags.dry_run = true,
+            Some("--env-source-comments") => flags.env_source_comments = true,
             Some("--fail-on") => {
                 let value = next_option_value(tokens.next(), "--fail-on")?;
                 flags.fail_on = Some(value.to_string_lossy().into_owned());
@@ -218,6 +220,7 @@ mod tests {
                 flags: Flags {
                     diff: false,
                     dry_run: true,
+                    env_source_comments: false,
                     fail_on: None,
                     fix_ids: Vec::new(),
                     fix_prefixes: Vec::new(),
@@ -250,6 +253,7 @@ mod tests {
             "env,tsconfig",
             "--skip",
             "duplicates",
+            "--env-source-comments",
             "--fail-on",
             "error",
             "--fix-id",
@@ -271,6 +275,7 @@ mod tests {
             Some(vec!["duplicates".to_string()])
         );
         assert_eq!(parsed.flags.fail_on.as_deref(), Some("error"));
+        assert!(parsed.flags.env_source_comments);
         assert_eq!(
             parsed.flags.fix_ids,
             vec!["env-example:create:.".to_string()]

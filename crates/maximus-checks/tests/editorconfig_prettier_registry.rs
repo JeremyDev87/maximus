@@ -34,6 +34,24 @@ fn editorconfig_prettier_check_reports_conflicts_and_registry_wiring() {
 }
 
 #[test]
+fn editorconfig_prettier_check_reads_universal_section_values() {
+    let fixture = fixture("universal-section-conflict");
+
+    let project = discover_project(&fixture).expect("project should discover");
+    let outcome = run_editorconfig_prettier_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!("editorconfig-prettier-conflict:{}", fixture.to_string_lossy()),
+        Severity::Warn,
+        "EditorConfig and Prettier disagree",
+        "EditorConfig sets indent_style=tab, indent_size=4, end_of_line=crlf, but Prettier sets useTabs=false, tabWidth=2, endOfLine=lf.",
+        "Align EditorConfig and Prettier so editor saves do not fight formatter output.",
+        Some(fixture.join(".editorconfig")),
+    );
+}
+
+#[test]
 fn editorconfig_prettier_check_accepts_aligned_configs() {
     let fixture = fixture("clean");
 

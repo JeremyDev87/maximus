@@ -1,15 +1,15 @@
 #![allow(dead_code)]
 
-#[path = "../src/text_order.rs"]
-mod text_order;
 #[path = "../src/env_parser.rs"]
 mod env_parser;
+#[path = "../src/fixes.rs"]
+mod fixes;
 #[path = "../src/fs.rs"]
 mod fs;
 #[path = "../src/models.rs"]
 mod models;
-#[path = "../src/fixes.rs"]
-mod fixes;
+#[path = "../src/text_order.rs"]
+mod text_order;
 
 use std::fs as stdfs;
 
@@ -26,14 +26,26 @@ fn create_env_example_plan_matches_js_metadata_contract() {
         &["AUTH_TOKEN".to_string(), "API_URL".to_string()],
     );
 
-    assert_eq!(fix.public.id, format!("env-example:create:{}", root.path().to_string_lossy()));
+    assert_eq!(
+        fix.public.id,
+        format!("env-example:create:{}", root.path().to_string_lossy())
+    );
     assert_eq!(fix.public.title, "Create .env.example");
     assert_eq!(fix.public.files, vec![root.path().join(".env.example")]);
 
     match &fix.operation {
-        FixOperation::CreateEnvExample { output_path, keys } => {
+        FixOperation::CreateEnvExample {
+            output_path,
+            groups,
+            render_options,
+        } => {
             assert_eq!(output_path, &root.path().join(".env.example"));
-            assert_eq!(keys, &vec!["AUTH_TOKEN".to_string(), "API_URL".to_string()]);
+            assert_eq!(groups.len(), 1);
+            assert_eq!(
+                groups[0].keys,
+                vec!["AUTH_TOKEN".to_string(), "API_URL".to_string()]
+            );
+            assert!(!render_options.source_comments);
         }
         _ => panic!("expected create env example operation"),
     }
@@ -49,8 +61,8 @@ fn apply_create_env_example_writes_sorted_template() {
     );
 
     let applied = apply_fix(&fix).expect("create fix should apply");
-    let output = stdfs::read_to_string(root.path().join(".env.example"))
-        .expect("example file should exist");
+    let output =
+        stdfs::read_to_string(root.path().join(".env.example")).expect("example file should exist");
 
     assert_eq!(output, "API_URL=\nAUTH_TOKEN=\n");
     assert_eq!(applied.outcome, "created");
@@ -96,7 +108,10 @@ fn sync_env_example_inserts_separator_when_existing_text_has_no_trailing_newline
     let output = stdfs::read_to_string(&example_path).expect("example file should exist");
 
     assert_eq!(output, "EXISTING=\nAUTH_TOKEN=\n");
-    assert_eq!(fix.public.title, "Append missing keys to packages/app/.env.example");
+    assert_eq!(
+        fix.public.title,
+        "Append missing keys to packages/app/.env.example"
+    );
 }
 
 #[test]
@@ -111,8 +126,8 @@ fn apply_fixes_runs_multiple_plans_in_order() {
     );
 
     let applied = apply_fixes(&[create, sync]).expect("fixes should apply");
-    let output = stdfs::read_to_string(root.path().join(".env.example"))
-        .expect("example file should exist");
+    let output =
+        stdfs::read_to_string(root.path().join(".env.example")).expect("example file should exist");
 
     assert_eq!(applied.len(), 2);
     assert_eq!(applied[0].outcome, "created");

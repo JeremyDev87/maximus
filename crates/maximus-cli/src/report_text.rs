@@ -13,7 +13,7 @@ pub fn format_help() -> String {
         "Usage",
         "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
         "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
-        "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
+        "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
         "  maximus help",
     ]
     .join("\n")
@@ -372,7 +372,7 @@ mod tests {
                 "Usage",
                 "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
                 "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
-                "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
+                "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
                 "  maximus help",
             ]
             .join("\n")

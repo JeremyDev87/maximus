@@ -24,16 +24,18 @@ pub use discover::{
 };
 pub use env_parser::{
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, parse_env,
-    render_env_template, EnvDuplicate, EnvEntry, InvalidEnvLine, ParsedEnv,
+    render_env_template, render_env_template_groups, EnvDuplicate, EnvEntry,
+    EnvTemplateRenderOptions, EnvTemplateSourceGroup, InvalidEnvLine, ParsedEnv,
 };
 pub use findings::{
     make_finding, serialize_audit_result, sort_findings, summarize_findings, unique_fixes,
     FindingInput, SerializableAuditResult, SerializableFinding,
 };
 pub use fixes::{
-    apply_fix, apply_fixes, plan_create_env_example, plan_sync_env_example, preview_fixes,
-    select_fix_plans, select_planned_fixes, AppliedFix, FixFilePreview, FixOperation, FixSelector,
-    PlannedFix, PreviewedFix,
+    apply_fix, apply_fixes, plan_create_env_example, plan_create_env_example_with_groups,
+    plan_sync_env_example, plan_sync_env_example_with_groups, preview_fixes, select_fix_plans,
+    select_planned_fixes, AppliedFix, FixFilePreview, FixOperation, FixSelector, PlannedFix,
+    PreviewedFix,
 };
 pub use fs::{path_exists, read_text_if_exists, write_text};
 pub use jsonc::{parse_jsonc, ParseJsoncError};

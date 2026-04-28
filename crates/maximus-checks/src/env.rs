@@ -5,14 +5,28 @@ use std::process::Command;
 
 use maximus_core::{
     is_concrete_env_file_name, is_template_env_file_name, looks_like_secret, make_finding,
-    parse_env, plan_create_env_example, plan_sync_env_example, read_text_if_exists,
-    render_env_template, sort_findings, unique_fixes, FileKind, FindingInput, FixPlan, ProjectFile,
-    ProjectSnapshot, Severity,
+    parse_env, plan_create_env_example, plan_create_env_example_with_groups, plan_sync_env_example,
+    plan_sync_env_example_with_groups, read_text_if_exists, render_env_template,
+    render_env_template_groups, sort_findings, unique_fixes, EnvTemplateRenderOptions,
+    EnvTemplateSourceGroup, FileKind, FindingInput, FixPlan, ProjectFile, ProjectSnapshot,
+    Severity,
 };
 
 use crate::check_outcome::CheckOutcome;
 
 pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
+    run_env_check_with_options(project, &EnvCheckOptions::default())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EnvCheckOptions {
+    pub template_render: EnvTemplateRenderOptions,
+}
+
+pub fn run_env_check_with_options(
+    project: &ProjectSnapshot,
+    options: &EnvCheckOptions,
+) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
     let mut fixes = Vec::new();
     let mut planned_fixes = Vec::new();
@@ -112,6 +126,8 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
             .filter(|record| is_concrete_env_file_name(&record.file.name))
             .collect::<Vec<_>>();
         let contract_keys = collect_contract_keys(&concrete_records);
+        let contract_groups =
+            collect_contract_groups(&project.root_dir, &concrete_records, &contract_keys);
 
         let gitignore_sources =
             read_ancestor_gitignore_sources(&gitignore_traversal_root, &directory.dir)?;
@@ -176,11 +192,20 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                 ),
                 files: vec![output_path],
             });
-            planned_fixes.push(plan_create_env_example(
-                &project.root_dir,
-                &directory.dir,
-                &contract_keys,
-            ));
+            if options.template_render.source_comments {
+                planned_fixes.push(plan_create_env_example_with_groups(
+                    &project.root_dir,
+                    &directory.dir,
+                    contract_groups.clone(),
+                    options.template_render.clone(),
+                ));
+            } else {
+                planned_fixes.push(plan_create_env_example(
+                    &project.root_dir,
+                    &directory.dir,
+                    &contract_keys,
+                ));
+            }
         }
 
         if let Some(example_record) = example_record {
@@ -223,12 +248,27 @@ pub fn run_env_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
                     ),
                     files: vec![example_record.file.path.clone()],
                 });
-                planned_fixes.push(plan_sync_env_example(
-                    &project.root_dir,
-                    &example_record.file.path,
-                    &example_record.parsed_source_text,
-                    &missing_keys,
-                ));
+                if options.template_render.source_comments {
+                    let missing_groups = collect_contract_groups(
+                        &project.root_dir,
+                        &concrete_records,
+                        &missing_keys,
+                    );
+                    planned_fixes.push(plan_sync_env_example_with_groups(
+                        &project.root_dir,
+                        &example_record.file.path,
+                        &example_record.parsed_source_text,
+                        missing_groups,
+                        options.template_render.clone(),
+                    ));
+                } else {
+                    planned_fixes.push(plan_sync_env_example(
+                        &project.root_dir,
+                        &example_record.file.path,
+                        &example_record.parsed_source_text,
+                        &missing_keys,
+                    ));
+                }
             }
 
             for contract_record in &contract_records {
@@ -367,6 +407,29 @@ pub fn render_synced_env_example(existing_text: &str, missing_keys: &[String]) -
     format!("{existing_text}{prefix}{addition}")
 }
 
+pub fn render_created_env_example_with_sources(groups: Vec<EnvTemplateSourceGroup>) -> String {
+    render_env_template_groups(
+        groups,
+        &EnvTemplateRenderOptions {
+            source_comments: true,
+        },
+    )
+}
+
+pub fn render_synced_env_example_with_sources(
+    existing_text: &str,
+    groups: Vec<EnvTemplateSourceGroup>,
+) -> String {
+    let prefix = if existing_text.ends_with('\n') || existing_text.is_empty() {
+        ""
+    } else {
+        "\n"
+    };
+    let addition = render_created_env_example_with_sources(groups);
+
+    format!("{existing_text}{prefix}{addition}")
+}
+
 #[derive(Debug, Clone)]
 struct ParsedEnvRecord {
     file: ProjectFile,
@@ -387,6 +450,37 @@ fn collect_contract_keys(records: &[&ParsedEnvRecord]) -> Vec<String> {
     }
 
     keys
+}
+
+fn collect_contract_groups(
+    root_dir: &Path,
+    records: &[&ParsedEnvRecord],
+    selected_keys: &[String],
+) -> Vec<EnvTemplateSourceGroup> {
+    let selected = selected_keys.iter().cloned().collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut groups = Vec::new();
+
+    for record in records {
+        let keys = record
+            .parsed
+            .order
+            .iter()
+            .filter(|key| selected.contains(*key) && seen.insert((*key).clone()))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if keys.is_empty() {
+            continue;
+        }
+
+        groups.push(EnvTemplateSourceGroup {
+            source: Some(relative_display_path(root_dir, &record.file.path)),
+            keys,
+        });
+    }
+
+    groups
 }
 
 fn relative_display_path(root_dir: &Path, target: &Path) -> String {

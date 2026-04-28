@@ -70,7 +70,10 @@ fn fix_prefix_filters_dry_run_json_to_matching_fixes() {
     assert_eq!(value["initial"]["fixes"].as_array().map(Vec::len), Some(1));
     assert_eq!(
         value["initial"]["fixes"][0]["id"],
-        format!("env-example:sync:{}", root.join("packages/app").to_string_lossy())
+        format!(
+            "env-example:sync:{}",
+            root.join("packages/app").to_string_lossy()
+        )
     );
 }
 
@@ -176,7 +179,7 @@ fn fix_only_flags_are_rejected_without_fix_command() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+        "Maximus failed: Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
     );
 }
 
@@ -189,11 +192,9 @@ fn fix_only_flags_are_rejected_for_help_command() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
-    assert!(
-        String::from_utf8(output.stdout)
-            .expect("stdout should be utf8")
-            .contains("Usage\n  maximus audit [path]")
-    );
+    assert!(String::from_utf8(output.stdout)
+        .expect("stdout should be utf8")
+        .contains("Usage\n  maximus audit [path]"));
 }
 
 #[test]
@@ -205,11 +206,9 @@ fn fix_only_flags_are_rejected_for_fix_help_command() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
-    assert!(
-        String::from_utf8(output.stdout)
-            .expect("stdout should be utf8")
-            .contains("Usage\n  maximus audit [path]")
-    );
+    assert!(String::from_utf8(output.stdout)
+        .expect("stdout should be utf8")
+        .contains("Usage\n  maximus audit [path]"));
 }
 
 #[test]
@@ -221,11 +220,9 @@ fn fix_only_flags_are_rejected_when_help_flag_precedes_fix_command() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
-    assert!(
-        String::from_utf8(output.stdout)
-            .expect("stdout should be utf8")
-            .contains("Usage\n  maximus audit [path]")
-    );
+    assert!(String::from_utf8(output.stdout)
+        .expect("stdout should be utf8")
+        .contains("Usage\n  maximus audit [path]"));
 }
 
 #[test]
@@ -236,14 +233,19 @@ fn audit_rejects_fix_only_flags() {
     write(root.join(".env"), "API_URL=https://root.example\n");
 
     let output = maximus_bin()
-        .args(["audit", root.to_string_lossy().as_ref(), "--fix-id", "env-example:"])
+        .args([
+            "audit",
+            root.to_string_lossy().as_ref(),
+            "--fix-id",
+            "env-example:",
+        ])
         .output()
         .expect("audit command should run");
 
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+        "Maximus failed: Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
     );
 }
 
@@ -258,7 +260,12 @@ fn diff_preview_shows_create_diff_without_writing_files() {
     );
 
     let output = maximus_bin()
-        .args(["fix", root.to_string_lossy().as_ref(), "--dry-run", "--diff"])
+        .args([
+            "fix",
+            root.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--diff",
+        ])
         .output()
         .expect("dry-run diff should run");
 
@@ -274,6 +281,79 @@ fn diff_preview_shows_create_diff_without_writing_files() {
 }
 
 #[test]
+fn env_source_comments_group_fix_diff_without_changing_default_output() {
+    let default_fixture = tempdir().expect("temp dir should exist");
+    let default_root = default_fixture.path();
+    let opt_in_fixture = tempdir().expect("temp dir should exist");
+    let opt_in_root = opt_in_fixture.path();
+
+    for root in [default_root, opt_in_root] {
+        write(root.join(".env.local"), "LOCAL_Z=1\nLOCAL_A=2\n");
+        write(root.join(".env"), "BASE_Z=1\nBASE_A=2\n");
+    }
+
+    let default_output = maximus_bin()
+        .args(["fix", default_root.to_string_lossy().as_ref()])
+        .output()
+        .expect("default fix command should run");
+    assert_eq!(default_output.status.code(), Some(1));
+    assert_eq!(
+        fs::read_to_string(default_root.join(".env.example"))
+            .expect("default example should write"),
+        "BASE_A=\nBASE_Z=\nLOCAL_A=\nLOCAL_Z=\n"
+    );
+
+    let opt_in_output = maximus_bin()
+        .args([
+            "fix",
+            opt_in_root.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--diff",
+            "--env-source-comments",
+        ])
+        .output()
+        .expect("opt-in dry-run diff should run");
+
+    assert_eq!(opt_in_output.status.code(), Some(1));
+    assert!(!opt_in_root.join(".env.example").exists());
+    let stdout = String::from_utf8(opt_in_output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("+# Source: .env"));
+    assert!(stdout.contains("+BASE_A="));
+    assert!(stdout.contains("+# Source: .env.local"));
+    assert!(stdout.contains("+LOCAL_A="));
+}
+
+#[test]
+fn env_source_comments_include_gitignored_env_inputs() {
+    let fixture = tempdir().expect("temp dir should exist");
+    let root = fixture.path();
+
+    fs::create_dir_all(root.join(".git")).expect("git dir should exist");
+    write(root.join(".gitignore"), ".env\n.env.local\n");
+    write(root.join(".env.local"), "LOCAL_Z=1\nLOCAL_A=2\n");
+    write(root.join(".env"), "BASE_Z=1\nBASE_A=2\n");
+
+    let output = maximus_bin()
+        .args([
+            "fix",
+            root.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--diff",
+            "--env-source-comments",
+        ])
+        .output()
+        .expect("opt-in dry-run diff should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(!root.join(".env.example").exists());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("+# Source: .env"));
+    assert!(stdout.contains("+BASE_A="));
+    assert!(stdout.contains("+# Source: .env.local"));
+    assert!(stdout.contains("+LOCAL_A="));
+}
+
+#[test]
 fn diff_preview_shows_update_diff_without_mutating_existing_file() {
     let fixture = tempdir().expect("temp dir should exist");
     let root = fixture.path();
@@ -285,7 +365,12 @@ fn diff_preview_shows_update_diff_without_mutating_existing_file() {
     write(root.join(".env.example"), "API_URL=\n");
 
     let output = maximus_bin()
-        .args(["fix", root.to_string_lossy().as_ref(), "--dry-run", "--diff"])
+        .args([
+            "fix",
+            root.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--diff",
+        ])
         .output()
         .expect("dry-run diff should run");
 
@@ -311,7 +396,12 @@ fn diff_preview_treats_existing_empty_env_example_as_update() {
     write(root.join(".env.example"), "");
 
     let output = maximus_bin()
-        .args(["fix", root.to_string_lossy().as_ref(), "--dry-run", "--diff"])
+        .args([
+            "fix",
+            root.to_string_lossy().as_ref(),
+            "--dry-run",
+            "--diff",
+        ])
         .output()
         .expect("dry-run diff should run");
 

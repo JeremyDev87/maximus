@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
+use std::fmt::Write;
 
-use indexmap::IndexMap;
 use crate::text_order::locale_compare_like;
+use indexmap::IndexMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvEntry {
@@ -32,6 +33,17 @@ pub struct ParsedEnv {
     pub invalid_lines: Vec<InvalidEnvLine>,
     pub order: Vec<String>,
     pub values: IndexMap<String, EnvEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EnvTemplateRenderOptions {
+    pub source_comments: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvTemplateSourceGroup {
+    pub source: Option<String>,
+    pub keys: Vec<String>,
 }
 
 pub fn parse_env(text: &str, label: Option<&str>) -> ParsedEnv {
@@ -108,25 +120,53 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let mut unique_keys = keys
+    render_env_template_groups(
+        [EnvTemplateSourceGroup {
+            source: None,
+            keys: keys
+                .into_iter()
+                .map(|key| key.as_ref().to_string())
+                .collect(),
+        }],
+        &EnvTemplateRenderOptions::default(),
+    )
+}
+
+pub fn render_env_template_groups<I>(groups: I, options: &EnvTemplateRenderOptions) -> String
+where
+    I: IntoIterator<Item = EnvTemplateSourceGroup>,
+{
+    let mut groups = groups
         .into_iter()
-        .map(|key| key.as_ref().to_string())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
+        .map(normalize_env_template_source_group)
+        .filter(|group| !group.keys.is_empty())
         .collect::<Vec<_>>();
 
-    if unique_keys.is_empty() {
+    if groups.is_empty() {
         return String::new();
     }
 
-    unique_keys.sort_by(|left, right| locale_compare_like(left, right));
+    if options.source_comments {
+        groups.sort_by(compare_source_groups);
+    }
 
-    let mut rendered = unique_keys
-        .into_iter()
-        .map(|key| format!("{key}="))
-        .collect::<Vec<_>>()
-        .join("\n");
-    rendered.push('\n');
+    let mut rendered = String::new();
+    for (index, group) in groups.iter().enumerate() {
+        if index > 0 && options.source_comments {
+            rendered.push('\n');
+        }
+
+        if options.source_comments {
+            if let Some(source) = &group.source {
+                let _ = writeln!(rendered, "# Source: {source}");
+            }
+        }
+
+        for key in &group.keys {
+            let _ = writeln!(rendered, "{key}=");
+        }
+    }
+
     rendered
 }
 
@@ -198,9 +238,7 @@ fn trim_js_like(value: &str) -> &str {
 }
 
 fn trim_js_like_start(value: &str) -> &str {
-    value.trim_start_matches(|character: char| {
-        character.is_whitespace() || character == '\u{feff}'
-    })
+    value.trim_start_matches(|character: char| character.is_whitespace() || character == '\u{feff}')
 }
 
 fn normalize_env_value(raw_value: &str) -> String {
@@ -240,4 +278,31 @@ fn is_placeholder_value(value: &str) -> bool {
                     .all(|character| character.is_ascii_lowercase() || character == '-')
         })
         .unwrap_or(false)
+}
+
+fn normalize_env_template_source_group(group: EnvTemplateSourceGroup) -> EnvTemplateSourceGroup {
+    let mut unique_keys = group
+        .keys
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    unique_keys.sort_by(|left, right| locale_compare_like(left, right));
+
+    EnvTemplateSourceGroup {
+        source: group.source,
+        keys: unique_keys,
+    }
+}
+
+fn compare_source_groups(
+    left: &EnvTemplateSourceGroup,
+    right: &EnvTemplateSourceGroup,
+) -> std::cmp::Ordering {
+    match (&left.source, &right.source) {
+        (Some(left), Some(right)) => locale_compare_like(left, right),
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
 }

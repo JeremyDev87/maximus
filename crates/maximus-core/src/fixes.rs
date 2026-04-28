@@ -1,7 +1,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::env_parser::render_env_template;
+use crate::env_parser::{
+    render_env_template_groups, EnvTemplateRenderOptions, EnvTemplateSourceGroup,
+};
 use crate::fs::{read_text_if_exists, write_text};
 use crate::models::FixPlan;
 
@@ -15,12 +17,14 @@ pub struct FixSelector {
 pub enum FixOperation {
     CreateEnvExample {
         output_path: PathBuf,
-        keys: Vec<String>,
+        groups: Vec<EnvTemplateSourceGroup>,
+        render_options: EnvTemplateRenderOptions,
     },
     SyncEnvExample {
         example_path: PathBuf,
         existing_text: String,
-        missing_keys: Vec<String>,
+        groups: Vec<EnvTemplateSourceGroup>,
+        render_options: EnvTemplateRenderOptions,
     },
 }
 
@@ -54,22 +58,39 @@ pub struct PreviewedFix {
     pub previews: Vec<FixFilePreview>,
 }
 
-pub fn plan_create_env_example(
+pub fn plan_create_env_example(root_dir: &Path, directory: &Path, keys: &[String]) -> PlannedFix {
+    plan_create_env_example_with_groups(
+        root_dir,
+        directory,
+        vec![EnvTemplateSourceGroup {
+            source: None,
+            keys: keys.to_vec(),
+        }],
+        EnvTemplateRenderOptions::default(),
+    )
+}
+
+pub fn plan_create_env_example_with_groups(
     root_dir: &Path,
     directory: &Path,
-    keys: &[String],
+    groups: Vec<EnvTemplateSourceGroup>,
+    render_options: EnvTemplateRenderOptions,
 ) -> PlannedFix {
     let output_path = directory.join(".env.example");
 
     PlannedFix {
         public: FixPlan {
             id: format!("env-example:create:{}", directory.to_string_lossy()),
-            title: format!("Create {}", relative_or_fallback(root_dir, &output_path, ".env.example")),
+            title: format!(
+                "Create {}",
+                relative_or_fallback(root_dir, &output_path, ".env.example")
+            ),
             files: vec![output_path.clone()],
         },
         operation: FixOperation::CreateEnvExample {
             output_path,
-            keys: keys.to_vec(),
+            groups,
+            render_options,
         },
     }
 }
@@ -79,6 +100,25 @@ pub fn plan_sync_env_example(
     example_path: &Path,
     existing_text: &str,
     missing_keys: &[String],
+) -> PlannedFix {
+    plan_sync_env_example_with_groups(
+        root_dir,
+        example_path,
+        existing_text,
+        vec![EnvTemplateSourceGroup {
+            source: None,
+            keys: missing_keys.to_vec(),
+        }],
+        EnvTemplateRenderOptions::default(),
+    )
+}
+
+pub fn plan_sync_env_example_with_groups(
+    root_dir: &Path,
+    example_path: &Path,
+    existing_text: &str,
+    groups: Vec<EnvTemplateSourceGroup>,
+    render_options: EnvTemplateRenderOptions,
 ) -> PlannedFix {
     let file_name = example_path
         .file_name()
@@ -103,33 +143,39 @@ pub fn plan_sync_env_example(
         operation: FixOperation::SyncEnvExample {
             example_path: example_path.to_path_buf(),
             existing_text: existing_text.to_string(),
-            missing_keys: missing_keys.to_vec(),
+            groups,
+            render_options,
         },
     }
 }
 
 pub fn apply_fix(fix: &PlannedFix) -> io::Result<AppliedFix> {
     match &fix.operation {
-        FixOperation::CreateEnvExample { output_path, keys } => {
-            write_text(output_path, &render_env_template(keys.iter().map(|key| key.as_str())))?;
+        FixOperation::CreateEnvExample {
+            output_path,
+            groups,
+            render_options,
+        } => {
+            write_text(
+                output_path,
+                &render_env_template_groups(groups.clone(), render_options),
+            )?;
             Ok(applied_fix_from_public(&fix.public, "created"))
         }
         FixOperation::SyncEnvExample {
             example_path,
             existing_text,
-            missing_keys,
+            groups,
+            render_options,
         } => {
             let prefix = if existing_text.ends_with('\n') || existing_text.is_empty() {
                 ""
             } else {
                 "\n"
             };
-            let addition = render_env_template(missing_keys.iter().map(|key| key.as_str()));
+            let addition = render_env_template_groups(groups.clone(), render_options);
 
-            write_text(
-                example_path,
-                &format!("{existing_text}{prefix}{addition}"),
-            )?;
+            write_text(example_path, &format!("{existing_text}{prefix}{addition}"))?;
 
             Ok(applied_fix_from_public(&fix.public, "updated"))
         }
@@ -198,10 +244,14 @@ impl FixSelector {
 
 fn preview_fix(fix: &PlannedFix) -> io::Result<PreviewedFix> {
     let previews = match &fix.operation {
-        FixOperation::CreateEnvExample { output_path, keys } => {
+        FixOperation::CreateEnvExample {
+            output_path,
+            groups,
+            render_options,
+        } => {
             let before = read_text_if_exists(output_path)?.unwrap_or_default();
             let existed_before = output_path.exists();
-            let after = render_env_template(keys.iter().map(|key| key.as_str()));
+            let after = render_env_template_groups(groups.clone(), render_options);
 
             vec![FixFilePreview {
                 path: output_path.clone(),
@@ -213,14 +263,15 @@ fn preview_fix(fix: &PlannedFix) -> io::Result<PreviewedFix> {
         FixOperation::SyncEnvExample {
             example_path,
             existing_text,
-            missing_keys,
+            groups,
+            render_options,
         } => {
             let prefix = if existing_text.ends_with('\n') || existing_text.is_empty() {
                 ""
             } else {
                 "\n"
             };
-            let addition = render_env_template(missing_keys.iter().map(|key| key.as_str()));
+            let addition = render_env_template_groups(groups.clone(), render_options);
 
             vec![FixFilePreview {
                 path: example_path.clone(),
