@@ -116,6 +116,7 @@ mod tests {
         assert_eq!(value["generator"], "maximus");
         assert_eq!(value["rootDir"], "/tmp/project");
         assert_eq!(value["summary"]["blockingFindings"], 0);
+        assert_eq!(value["summary"]["suppressedByConfig"], 0);
         assert_eq!(value["structure"]["configFiles"], 1);
         assert!(value["findings"].as_array().is_some());
     }
@@ -206,6 +207,7 @@ mod tests {
                 info_findings: 0,
                 fixable_findings: 0,
                 fixes_available: 0,
+                suppressed_by_config: 0,
                 config_files: 1,
                 package_count: 1,
                 env_directories: 0,

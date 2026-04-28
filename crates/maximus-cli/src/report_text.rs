@@ -32,6 +32,7 @@ pub fn format_audit_report(result: &AuditResult) -> String {
         result.summary.warning_findings,
         result.summary.info_findings
     ));
+    push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.push(format!(
         "Fixes available: {}",
         result.summary.fixes_available
@@ -79,6 +80,7 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
     lines.push(format!("Target: {}", display_path(&result.root_dir)));
     lines.push(String::new());
     lines.push(format!("Diagnosis: {}", result.summary.status));
+    push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.push(format!(
         "Project shape: {}",
         describe_structure(&result.structure)
@@ -227,6 +229,7 @@ pub fn format_fix_result(
         result.summary.warning_findings,
         result.summary.info_findings
     ));
+    push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
 
     if result.findings.is_empty() {
         lines.push(String::new());
@@ -267,6 +270,12 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
     }
 
     lines
+}
+
+fn push_suppression_summary(lines: &mut Vec<String>, suppressed_by_config: usize) {
+    if suppressed_by_config > 0 {
+        lines.push(format!("Suppressed by config: {suppressed_by_config}"));
+    }
 }
 
 fn format_relative_file(root_dir: &Path, file_path: &Path) -> String {
@@ -477,6 +486,7 @@ mod tests {
                 info_findings: 2,
                 fixable_findings: 1,
                 fixes_available: 1,
+                suppressed_by_config: 0,
                 config_files: 2,
                 package_count: 1,
                 env_directories: 1,
@@ -582,6 +592,7 @@ mod tests {
                 info_findings: 0,
                 fixable_findings: 0,
                 fixes_available: 0,
+                suppressed_by_config: 0,
                 config_files: 1,
                 package_count: 1,
                 env_directories: 0,

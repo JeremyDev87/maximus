@@ -357,6 +357,7 @@ fn resolve_effective_config(
         config.ignore = scope_ignore_patterns(&config.ignore, &config_root, &ignore_root)?;
         config.ignore_patterns =
             scope_ignore_patterns(&config.ignore_patterns, &config_root, &ignore_root)?;
+        scope_suppression_file_prefixes(&mut config.suppressions, &config_root, &ignore_root);
     }
     let mut ignore_file_patterns = load_ignore_file_pattern_sources(&ignore_root, target_dir)?;
     if !ignore_file_patterns.maximusignore.is_empty() {
@@ -391,6 +392,69 @@ fn resolve_effective_config(
         config,
         ignore_root,
     })
+}
+
+fn scope_suppression_file_prefixes(
+    suppressions: &mut [maximus_core::config::ConfigSuppression],
+    config_root: &std::path::Path,
+    ignore_root: &std::path::Path,
+) {
+    for suppression in suppressions {
+        if let Some(file_prefix) = suppression.file_prefix.as_mut() {
+            *file_prefix = scope_suppression_file_prefix(file_prefix, config_root, ignore_root);
+        }
+    }
+}
+
+fn scope_suppression_file_prefix(
+    value: &str,
+    config_root: &std::path::Path,
+    ignore_root: &std::path::Path,
+) -> String {
+    let normalized = normalize_suppression_file_prefix(value);
+    if normalized.is_empty() || std::path::Path::new(&normalized).is_absolute() {
+        return normalized;
+    }
+
+    let config_relative_path = config_root.join(&normalized);
+    relative_path_from_root(&config_relative_path, ignore_root).unwrap_or(normalized)
+}
+
+fn normalize_suppression_file_prefix(value: &str) -> String {
+    value
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn relative_path_from_root(path: &std::path::Path, root: &std::path::Path) -> Option<String> {
+    if let Ok(relative) = path.strip_prefix(root) {
+        return Some(path_to_slash_string(relative));
+    }
+
+    if let (Ok(absolute_path), Ok(absolute_root)) =
+        (std::path::absolute(path), std::path::absolute(root))
+    {
+        if let Ok(relative) = absolute_path.strip_prefix(absolute_root) {
+            return Some(path_to_slash_string(relative));
+        }
+    }
+
+    if let (Ok(canonical_path), Ok(canonical_root)) =
+        (std::fs::canonicalize(path), std::fs::canonicalize(root))
+    {
+        if let Ok(relative) = canonical_path.strip_prefix(canonical_root) {
+            return Some(path_to_slash_string(relative));
+        }
+    }
+
+    None
+}
+
+fn path_to_slash_string(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn effective_fail_on_level(config: &MaximusConfig) -> FailOnLevel {
