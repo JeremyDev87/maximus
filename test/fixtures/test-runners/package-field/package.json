@@ -1,0 +1,10 @@
+{
+  "name": "package-field",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "vitest": {
+    "globals": true
+  }
+}

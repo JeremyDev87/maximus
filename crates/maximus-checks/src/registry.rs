@@ -17,11 +17,12 @@ use crate::lockfiles::run_lockfiles_check_with_ignore_root;
 use crate::module_system::run_module_system_check;
 use crate::monorepo_tsconfig::run_monorepo_tsconfig_check;
 use crate::package_entrypoints::run_package_entrypoints_check;
+use crate::test_runner_config::run_test_runner_config_check;
 use crate::vite_tsconfig_alias::run_vite_tsconfig_alias_check;
 use crate::workspace_config::run_workspace_config_check;
 use crate::{
-    build_structure_report, run_config_duplicate_check, run_env_check, run_eslint_prettier_check,
-    run_tsconfig_check,
+    build_structure_report, run_config_duplicate_check, run_editorconfig_prettier_check,
+    run_env_check, run_eslint_prettier_check, run_tsconfig_check,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +84,14 @@ const REGISTERED_CHECKS: &[RegisteredCheck] = &[
         id: "workspace-config",
         run: run_workspace_config_check_registered,
     },
+    RegisteredCheck {
+        id: "test-runner-config",
+        run: run_test_runner_config_check_registered,
+    },
+    RegisteredCheck {
+        id: "editorconfig-prettier",
+        run: run_editorconfig_prettier_check_registered,
+    },
 ];
 
 pub fn registered_check_ids() -> &'static [&'static str] {
@@ -98,6 +107,8 @@ pub fn registered_check_ids() -> &'static [&'static str] {
         "package-entrypoints",
         "vite-tsconfig-alias",
         "workspace-config",
+        "test-runner-config",
+        "editorconfig-prettier",
     ]
 }
 
@@ -478,6 +489,22 @@ fn run_workspace_config_check_registered(
     _ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
     run_workspace_config_check(project)
+}
+
+fn run_test_runner_config_check_registered(
+    project: &ProjectSnapshot,
+    _config: &MaximusConfig,
+    _ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    run_test_runner_config_check(project)
+}
+
+fn run_editorconfig_prettier_check_registered(
+    project: &ProjectSnapshot,
+    _config: &MaximusConfig,
+    _ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    run_editorconfig_prettier_check(project)
 }
 
 fn apply_severity_overrides(

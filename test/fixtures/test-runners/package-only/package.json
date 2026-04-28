@@ -1,0 +1,10 @@
+{
+  "name": "package-only",
+  "private": true,
+  "jest": {
+    "testEnvironment": "node"
+  },
+  "vitest": {
+    "globals": true
+  }
+}
