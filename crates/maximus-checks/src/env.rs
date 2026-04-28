@@ -125,9 +125,9 @@ pub fn run_env_check_with_options(
             .iter()
             .filter(|record| is_concrete_env_file_name(&record.file.name))
             .collect::<Vec<_>>();
-        let contract_keys = collect_contract_keys(&concrete_records);
-        let contract_groups =
-            collect_contract_groups(&project.root_dir, &concrete_records, &contract_keys);
+        let sync_target_keys = collect_sync_target_keys(&concrete_records);
+        let sync_target_groups =
+            collect_contract_groups(&project.root_dir, &concrete_records, &sync_target_keys);
 
         let gitignore_sources =
             read_ancestor_gitignore_sources(&gitignore_traversal_root, &directory.dir)?;
@@ -164,7 +164,7 @@ pub fn run_env_check_with_options(
             }));
         }
 
-        if !contract_keys.is_empty() && example_record.is_none() {
+        if !sync_target_keys.is_empty() && example_record.is_none() {
             let output_path = directory.dir.join(".env.example");
 
             findings.push(make_finding(FindingInput {
@@ -196,14 +196,14 @@ pub fn run_env_check_with_options(
                 planned_fixes.push(plan_create_env_example_with_groups(
                     &project.root_dir,
                     &directory.dir,
-                    contract_groups.clone(),
+                    sync_target_groups.clone(),
                     options.template_render.clone(),
                 ));
             } else {
                 planned_fixes.push(plan_create_env_example(
                     &project.root_dir,
                     &directory.dir,
-                    &contract_keys,
+                    &sync_target_keys,
                 ));
             }
         }
@@ -215,7 +215,7 @@ pub fn run_env_check_with_options(
                 .iter()
                 .cloned()
                 .collect::<BTreeSet<_>>();
-            let missing_keys = contract_keys
+            let missing_keys = sync_target_keys
                 .iter()
                 .filter(|key| !example_keys.contains(*key))
                 .cloned()
@@ -450,6 +450,21 @@ fn collect_contract_keys(records: &[&ParsedEnvRecord]) -> Vec<String> {
     }
 
     keys
+}
+
+fn collect_sync_target_keys(records: &[&ParsedEnvRecord]) -> Vec<String> {
+    collect_contract_keys(records)
+        .into_iter()
+        .filter(|key| !is_ambient_platform_env_key(key))
+        .collect()
+}
+
+fn is_ambient_platform_env_key(key: &str) -> bool {
+    key == "NX_DAEMON"
+        || key == "VERCEL"
+        || key == "VERCEL_URL"
+        || key.starts_with("VERCEL_")
+        || key.starts_with("TURBO_")
 }
 
 fn collect_contract_groups(

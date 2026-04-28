@@ -540,6 +540,105 @@ fn env_sync_planned_fix_uses_audited_snapshot_text() {
 }
 
 #[test]
+fn env_sync_planned_fix_excludes_ambient_platform_keys_and_keeps_app_keys() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let example_path = fixture.path().join(".env.local.example");
+
+    write(
+        fixture.path().join(".env.local"),
+        "VERCEL=1\nVERCEL_URL=example.vercel.app\nVERCEL_ENV=preview\nTURBO_TOKEN=turbo-token\nTURBO_TEAM=team\nNX_DAEMON=true\nNEXT_PUBLIC_OKTA_CLIENT_ID=okta-client\nGITHUB_TOKEN=github-token\nSUPABASE_URL=https://example.supabase.co\nSUPABASE_ANON_KEY=supabase-anon\nVALIDATION_MODE=strict\n",
+    );
+    write(fixture.path().join(".gitignore"), ".env.local\n");
+    write(&example_path, "EXISTING=\n");
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_env_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!("env-example-sync:{}", fixture.path().to_string_lossy()),
+        Severity::Warn,
+        ".env.local.example is missing keys",
+        "Missing keys: NEXT_PUBLIC_OKTA_CLIENT_ID, GITHUB_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY, VALIDATION_MODE.",
+        "Run \"maximus fix\" to append the missing keys to .env.local.example.",
+        Some(example_path.clone()),
+        true,
+        &[format!(
+            "env-example:sync:{}",
+            fixture.path().to_string_lossy()
+        )],
+    );
+
+    let planned = outcome
+        .planned_fixes
+        .iter()
+        .find(|fix| {
+            fix.public.id == format!("env-example:sync:{}", fixture.path().to_string_lossy())
+        })
+        .expect("planned sync fix should exist")
+        .clone();
+
+    match &planned.operation {
+        FixOperation::SyncEnvExample { groups, .. } => {
+            assert_eq!(groups.len(), 1);
+            assert_eq!(
+                groups[0].keys,
+                vec![
+                    "NEXT_PUBLIC_OKTA_CLIENT_ID".to_string(),
+                    "GITHUB_TOKEN".to_string(),
+                    "SUPABASE_URL".to_string(),
+                    "SUPABASE_ANON_KEY".to_string(),
+                    "VALIDATION_MODE".to_string(),
+                ]
+            );
+            for ambient_key in [
+                "VERCEL",
+                "VERCEL_URL",
+                "VERCEL_ENV",
+                "TURBO_TOKEN",
+                "TURBO_TEAM",
+                "NX_DAEMON",
+            ] {
+                assert!(
+                    !groups[0].keys.iter().any(|key| key == ambient_key),
+                    "{ambient_key} should not be planned for env example sync"
+                );
+            }
+        }
+        _ => panic!("expected sync env example operation"),
+    }
+
+    apply_fix(&planned).expect("planned fix should apply");
+
+    let output = fs::read_to_string(&example_path).expect("example file should exist");
+    for app_key in [
+        "NEXT_PUBLIC_OKTA_CLIENT_ID",
+        "GITHUB_TOKEN",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "VALIDATION_MODE",
+    ] {
+        assert!(
+            output.contains(&format!("{app_key}=\n")),
+            "{app_key} should be appended to env example"
+        );
+    }
+    for ambient_key in [
+        "VERCEL",
+        "VERCEL_URL",
+        "VERCEL_ENV",
+        "TURBO_TOKEN",
+        "TURBO_TEAM",
+        "NX_DAEMON",
+    ] {
+        assert!(
+            !output.contains(&format!("{ambient_key}=\n")),
+            "{ambient_key} should not be appended to env example"
+        );
+    }
+}
+
+#[test]
 fn env_example_render_helpers_match_js_create_and_sync_semantics() {
     assert_eq!(
         render_created_env_example(["ZETA", "ALPHA", "ALPHA"]),
