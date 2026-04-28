@@ -110,6 +110,8 @@ pub struct AuditSummary {
     pub info_findings: usize,
     pub fixable_findings: usize,
     pub fixes_available: usize,
+    #[serde(default)]
+    pub suppressed_by_config: usize,
     pub config_files: usize,
     pub package_count: usize,
     pub env_directories: usize,

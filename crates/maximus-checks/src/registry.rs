@@ -1,13 +1,14 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use maximus_core::config::ConfigSuppression;
+use maximus_core::findings::summarize_findings_with_suppressed_by_config;
 use maximus_core::{
     discover_project, discover_project_with_ignore_root, parse_jsonc, read_text_if_exists,
-    sort_findings, summarize_findings, unique_fixes, AuditResult, CheckFilterConfig,
-    ConfigSeverity, MaximusConfig, PlannedFix, ProjectDirectory, ProjectFile, ProjectSnapshot,
-    Severity,
+    sort_findings, unique_fixes, AuditResult, CheckFilterConfig, ConfigSeverity, MaximusConfig,
+    PlannedFix, ProjectDirectory, ProjectFile, ProjectSnapshot, Severity,
 };
 use serde_json::{Map, Value};
 
@@ -173,9 +174,20 @@ pub fn audit_project_with_config_root(
     };
     let mut outcome = run_registered_checks_with_config_root(&project, config, ignore_root)?;
     apply_severity_overrides(&mut outcome.findings, &config.severity);
+    let suppressed_by_config = apply_config_suppressions(
+        &mut outcome,
+        &config.suppressions,
+        &project.root_dir,
+        ignore_root,
+    );
     outcome.findings = sort_findings(&outcome.findings);
     let structure = build_structure_report(&project, &outcome.findings);
-    let summary = summarize_findings(&outcome.findings, &outcome.fixes, &structure);
+    let summary = summarize_findings_with_suppressed_by_config(
+        &outcome.findings,
+        &outcome.fixes,
+        &structure,
+        suppressed_by_config,
+    );
     let result = AuditResult {
         root_dir: project.root_dir.clone(),
         summary,
@@ -522,6 +534,130 @@ fn run_editorconfig_prettier_check_registered(
 ) -> io::Result<CheckOutcome> {
     let ignored_patterns = config.effective_ignore_patterns();
     run_editorconfig_prettier_check_with_ignore_root(project, &ignored_patterns, ignore_root)
+}
+
+fn apply_config_suppressions(
+    outcome: &mut CheckOutcome,
+    suppressions: &[ConfigSuppression],
+    root_dir: &Path,
+    ignore_root: &Path,
+) -> usize {
+    if suppressions.is_empty() || outcome.findings.is_empty() {
+        return 0;
+    }
+
+    let original_count = outcome.findings.len();
+    outcome
+        .findings
+        .retain(|finding| !is_suppressed_by_config(finding, suppressions, root_dir, ignore_root));
+    let suppressed_count = original_count - outcome.findings.len();
+
+    if suppressed_count > 0 {
+        let active_fix_ids = outcome
+            .findings
+            .iter()
+            .flat_map(|finding| finding.fix_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        outcome.fixes.retain(|fix| active_fix_ids.contains(&fix.id));
+        outcome
+            .planned_fixes
+            .retain(|fix| active_fix_ids.contains(&fix.public.id));
+    }
+
+    suppressed_count
+}
+
+fn is_suppressed_by_config(
+    finding: &maximus_core::Finding,
+    suppressions: &[ConfigSuppression],
+    root_dir: &Path,
+    ignore_root: &Path,
+) -> bool {
+    suppressions.iter().any(|suppression| {
+        suppression.id == finding.id
+            && suppression_file_matches(finding, suppression, root_dir, ignore_root)
+    })
+}
+
+fn suppression_file_matches(
+    finding: &maximus_core::Finding,
+    suppression: &ConfigSuppression,
+    root_dir: &Path,
+    ignore_root: &Path,
+) -> bool {
+    let Some(prefix) = suppression
+        .file_prefix
+        .as_deref()
+        .and_then(normalize_file_prefix)
+    else {
+        return true;
+    };
+    let Some(file) = finding.file.as_ref() else {
+        return false;
+    };
+
+    finding_file_candidates(file, &[root_dir, ignore_root])
+        .iter()
+        .any(|candidate| path_matches_prefix(candidate, &prefix))
+}
+
+fn finding_file_candidates(file: &Path, roots: &[&Path]) -> Vec<String> {
+    let mut candidates = vec![path_to_slash_string(file)];
+    if let Ok(canonical_file) = fs::canonicalize(file) {
+        push_unique_candidate(&mut candidates, path_to_slash_string(&canonical_file));
+    }
+
+    for root in roots {
+        push_relative_candidate(&mut candidates, file, root);
+    }
+
+    candidates
+}
+
+fn push_relative_candidate(candidates: &mut Vec<String>, file: &Path, root: &Path) {
+    if let Ok(relative) = file.strip_prefix(root) {
+        push_unique_candidate(candidates, path_to_slash_string(relative));
+    }
+
+    if let (Ok(canonical_file), Ok(canonical_root)) =
+        (fs::canonicalize(file), fs::canonicalize(root))
+    {
+        if let Ok(relative) = canonical_file.strip_prefix(canonical_root) {
+            push_unique_candidate(candidates, path_to_slash_string(relative));
+        }
+    }
+}
+
+fn push_unique_candidate(candidates: &mut Vec<String>, candidate: String) {
+    if !candidates.contains(&candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn normalize_file_prefix(value: &str) -> Option<String> {
+    let normalized = value
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_string();
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn path_matches_prefix(path: &str, prefix: &str) -> bool {
+    path == prefix
+        || path
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn path_to_slash_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn apply_severity_overrides(

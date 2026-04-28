@@ -16,11 +16,14 @@ pub fn format_audit_report(result: &AuditResult) -> String {
             result.summary.warning_findings,
             result.summary.info_findings
         ),
+    ];
+    push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
+    lines.extend([
         format!("- Fixes available: `{}`", result.summary.fixes_available),
         String::new(),
         "## Structure".to_string(),
         format!("{}.", describe_structure(&result.structure)),
-    ];
+    ]);
 
     if result.findings.is_empty() {
         lines.push(String::new());
@@ -49,10 +52,13 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
         String::new(),
         format!("- Target: `{}`", display_path(&result.root_dir)),
         format!("- Diagnosis: `{}`", result.summary.status),
+    ];
+    push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
+    lines.extend([
         format!("- Project shape: {}", describe_structure(&result.structure)),
         String::new(),
         "## Prescription".to_string(),
-    ];
+    ]);
 
     let manual_findings = result
         .findings
@@ -176,6 +182,7 @@ pub fn format_fix_result(
         final_result.summary.warning_findings,
         final_result.summary.info_findings
     ));
+    push_suppression_summary(&mut lines, final_result.summary.suppressed_by_config);
 
     if final_result.findings.is_empty() {
         lines.push(String::new());
@@ -249,6 +256,12 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
     }
 
     lines
+}
+
+fn push_suppression_summary(lines: &mut Vec<String>, suppressed_by_config: usize) {
+    if suppressed_by_config > 0 {
+        lines.push(format!("- Suppressed by config: `{suppressed_by_config}`"));
+    }
 }
 
 fn describe_structure(structure: &StructureReport) -> String {
@@ -363,6 +376,7 @@ mod tests {
                 info_findings: 2,
                 fixable_findings: 1,
                 fixes_available: 1,
+                suppressed_by_config: 0,
                 config_files: 2,
                 package_count: 1,
                 env_directories: 1,
@@ -438,6 +452,21 @@ mod tests {
         assert!(report.contains("+API_URL="));
     }
 
+    #[test]
+    fn markdown_reports_show_nonzero_suppressed_count() {
+        let root_dir = PathBuf::from("/tmp/project");
+        let mut result = sample_result(root_dir.clone());
+        result.summary.suppressed_by_config = 2;
+
+        let audit_report = format_audit_report(&result);
+        let doctor_report = format_doctor_report(&result);
+        let fix_report = format_fix_result(false, &root_dir, &result, &[], &result, None, None);
+
+        assert!(audit_report.contains("- Suppressed by config: `2`"));
+        assert!(doctor_report.contains("- Suppressed by config: `2`"));
+        assert!(fix_report.contains("- Suppressed by config: `2`"));
+    }
+
     fn sample_result(root_dir: PathBuf) -> AuditResult {
         AuditResult {
             root_dir,
@@ -449,6 +478,7 @@ mod tests {
                 info_findings: 0,
                 fixable_findings: 0,
                 fixes_available: 0,
+                suppressed_by_config: 0,
                 config_files: 1,
                 package_count: 1,
                 env_directories: 0,

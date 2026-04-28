@@ -459,6 +459,271 @@ fn config_glob_ignore_and_severity_overrides_are_applied() {
 }
 
 #[test]
+fn config_suppression_by_exact_finding_id_hides_finding_and_counts_summary() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write_tsconfig_conflict_fixture(fixture.path());
+    let finding_id = tsconfig_import_conflict_id(fixture.path());
+    write(
+        fixture.path().join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id,
+                    "reason": "fixture intentionally keeps runtime/editor aliases split"
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["totalFindings"], 0);
+    assert_eq!(value["summary"]["warningFindings"], 0);
+    assert_eq!(value["summary"]["suppressedByConfig"], 1);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(findings.is_empty(), "suppressed finding should be hidden");
+}
+
+#[test]
+fn config_suppression_file_prefix_restricts_matching_findings() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let target = fixture.path().join("packages/web");
+    write_tsconfig_conflict_fixture(&target);
+    let finding_id = tsconfig_import_conflict_id(&target);
+    write(
+        fixture.path().join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id,
+                    "filePrefix": "packages/web"
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["suppressedByConfig"], 1);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "matching filePrefix should hide finding: {findings:?}"
+    );
+}
+
+#[test]
+fn root_config_suppression_file_prefix_matches_nested_audit_targets() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let target = repo.join("packages/web");
+    write_tsconfig_conflict_fixture(&target);
+    let finding_id = tsconfig_import_conflict_id(&target);
+    write(
+        repo.join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id,
+                    "filePrefix": "packages/web"
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", target.to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["suppressedByConfig"], 1);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "root config filePrefix should match nested target finding: {findings:?}"
+    );
+}
+
+#[test]
+fn nested_config_suppression_file_prefix_matches_deeper_audit_targets() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let repo = fixture.path().join("repo");
+    let config_root = repo.join("packages/web");
+    let target = config_root.join("app");
+    fs::create_dir_all(repo.join(".git")).expect("git dir should exist");
+    write_tsconfig_conflict_fixture(&target);
+    let finding_id = tsconfig_import_conflict_id(&target);
+    write(
+        config_root.join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id,
+                    "filePrefix": "app"
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", target.to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["suppressedByConfig"], 1);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "nested config filePrefix should match deeper target finding: {findings:?}"
+    );
+}
+
+#[test]
+fn config_suppression_with_non_matching_file_prefix_keeps_finding() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let target = fixture.path().join("packages/web");
+    write_tsconfig_conflict_fixture(&target);
+    let finding_id = tsconfig_import_conflict_id(&target);
+    write(
+        fixture.path().join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id,
+                    "filePrefix": "packages/api"
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["suppressedByConfig"], 0);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        ),
+        finding_id
+    );
+}
+
+#[test]
+fn config_suppression_removes_fixes_for_hidden_findings() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(fixture.path().join(".env"), "API_URL=http://localhost\n");
+    write(fixture.path().join(".gitignore"), ".env\n");
+    let finding_id = env_example_missing_id(fixture.path());
+    write(
+        fixture.path().join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["env"] },
+            "suppressions": [
+                {
+                    "id": finding_id
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    assert_eq!(value["summary"]["fixesAvailable"], 0);
+    assert_eq!(value["summary"]["suppressedByConfig"], 1);
+    let fixes = value["fixes"].as_array().expect("fixes should be an array");
+    assert!(
+        fixes.is_empty(),
+        "suppressed finding fixes should be hidden"
+    );
+}
+
+#[test]
+fn config_suppression_text_report_shows_nonzero_suppressed_count() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write_tsconfig_conflict_fixture(fixture.path());
+    let finding_id = tsconfig_import_conflict_id(fixture.path());
+    write(
+        fixture.path().join("maximus.config.json"),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "checks": { "only": ["tsconfig"] },
+            "suppressions": [
+                {
+                    "id": finding_id
+                }
+            ]
+        }))
+        .expect("config json should render"),
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref()])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("Suppressed by config: 1"),
+        "text report should show nonzero suppressed count: {stdout}"
+    );
+}
+
+#[test]
 fn config_ignore_patterns_alias_applies_to_discovery() {
     let fixture = TempDir::new().expect("temp dir should exist");
     write_tsconfig_conflict_fixture(&fixture.path().join("generated"));
@@ -1294,6 +1559,17 @@ fn write_tsconfig_conflict_fixture(root: &Path) {
     );
     write(root.join("src/runtime/index.ts"), "export {};\n");
     write(root.join("src/lib/index.ts"), "export {};\n");
+}
+
+fn tsconfig_import_conflict_id(root: &Path) -> String {
+    format!(
+        "tsconfig-import-conflict:{}:#app/*",
+        root.join("tsconfig.json").to_string_lossy()
+    )
+}
+
+fn env_example_missing_id(root: &Path) -> String {
+    format!("env-example-missing:{}", root.to_string_lossy())
 }
 
 fn write(path: impl AsRef<Path>, content: &str) {

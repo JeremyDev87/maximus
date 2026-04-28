@@ -45,6 +45,8 @@ pub struct MaximusConfig {
     #[serde(default)]
     pub severity: BTreeMap<String, ConfigSeverity>,
     #[serde(default)]
+    pub suppressions: Vec<ConfigSuppression>,
+    #[serde(default)]
     pub report: ReportConfig,
 }
 
@@ -81,6 +83,16 @@ pub struct CheckFilterConfig {
     pub only: Vec<String>,
     #[serde(default)]
     pub skip: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigSuppression {
+    pub id: String,
+    #[serde(default, rename = "filePrefix")]
+    pub file_prefix: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

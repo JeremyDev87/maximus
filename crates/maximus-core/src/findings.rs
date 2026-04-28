@@ -106,6 +106,15 @@ pub fn summarize_findings(
     fixes: &[FixPlan],
     structure: &StructureReport,
 ) -> AuditSummary {
+    summarize_findings_with_suppressed_by_config(findings, fixes, structure, 0)
+}
+
+pub fn summarize_findings_with_suppressed_by_config(
+    findings: &[Finding],
+    fixes: &[FixPlan],
+    structure: &StructureReport,
+    suppressed_by_config: usize,
+) -> AuditSummary {
     let blocking_findings = findings
         .iter()
         .filter(|finding| finding.severity == Severity::Error)
@@ -136,6 +145,7 @@ pub fn summarize_findings(
         info_findings,
         fixable_findings,
         fixes_available: fixes.len(),
+        suppressed_by_config,
         config_files: structure.config_files,
         package_count: structure.package_count,
         env_directories: structure.env_directories,

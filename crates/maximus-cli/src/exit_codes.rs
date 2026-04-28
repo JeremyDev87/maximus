@@ -34,6 +34,7 @@ mod tests {
             info_findings: 0,
             fixable_findings: 0,
             fixes_available: 0,
+            suppressed_by_config: 0,
             config_files: 1,
             package_count: 1,
             env_directories: 0,

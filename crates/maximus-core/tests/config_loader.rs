@@ -123,6 +123,16 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
           "severity": {
             "env-mismatch": "info"
           },
+          "suppressions": [
+            {
+              "id": "tsconfig-import-conflict:/repo/tsconfig.json:#app/*",
+              "filePrefix": "packages/web",
+              "reason": "covered by generated config"
+            },
+            {
+              "id": "env-example-missing:/repo"
+            }
+          ],
           "report": {
             "failOn": "error"
           }
@@ -147,6 +157,21 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
         loaded.config.severity.get("env-mismatch"),
         Some(&ConfigSeverity::Info)
     );
+    assert_eq!(loaded.config.suppressions.len(), 2);
+    assert_eq!(
+        loaded.config.suppressions[0].id,
+        "tsconfig-import-conflict:/repo/tsconfig.json:#app/*"
+    );
+    assert_eq!(
+        loaded.config.suppressions[0].file_prefix.as_deref(),
+        Some("packages/web")
+    );
+    assert_eq!(
+        loaded.config.suppressions[0].reason.as_deref(),
+        Some("covered by generated config")
+    );
+    assert_eq!(loaded.config.suppressions[1].file_prefix, None);
+    assert_eq!(loaded.config.suppressions[1].reason, None);
     assert_eq!(loaded.config.report.fail_on, Some(FailOnLevel::Error));
 }
 
