@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use maximus_core::{discover_project, Severity};
+use maximus_core::{discover_project, summarize_findings, Severity, StructureReport};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
@@ -847,6 +847,111 @@ fn tsconfig_check_reports_empty_include_and_useless_exclude_patterns() {
         }),
         "useful include/exclude patterns should not report tsconfig-pattern findings"
     );
+}
+
+#[test]
+fn tsconfig_pattern_severity_contract_keeps_noop_excludes_non_blocking() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join("empty-include/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/missing/**/*.mts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("empty-include/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    write(
+        fixture.path().join("noop-node-modules-exclude/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/**/*.ts"],
+          "exclude": ["node_modules"]
+        }
+        "#,
+    );
+    write(
+        fixture
+            .path()
+            .join("noop-node-modules-exclude/src/index.ts"),
+        "export const ok = true;\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:src/missing/**/*.mts",
+            fixture
+                .path()
+                .join("empty-include/tsconfig.json")
+                .to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"src/missing/**/*.mts\" matched 0 files under base dir {}.",
+            fixture.path().join("empty-include").to_string_lossy()
+        ),
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+        Some(fixture.path().join("empty-include/tsconfig.json")),
+    );
+
+    let noop_exclude_id = format!(
+        "tsconfig-patterns:{}:exclude:node_modules",
+        fixture
+            .path()
+            .join("noop-node-modules-exclude/tsconfig.json")
+            .to_string_lossy()
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &noop_exclude_id,
+        Severity::Info,
+        "Exclude pattern does not filter any included files",
+        &format!(
+            "exclude pattern \"node_modules\" removed 0 files from 1 included file(s) under base dir {}.",
+            fixture
+                .path()
+                .join("noop-node-modules-exclude")
+                .to_string_lossy()
+        ),
+        "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
+        Some(
+            fixture
+                .path()
+                .join("noop-node-modules-exclude/tsconfig.json"),
+        ),
+    );
+
+    let noop_exclude_finding = outcome
+        .findings
+        .iter()
+        .find(|finding| finding.id == noop_exclude_id)
+        .expect("no-op node_modules exclude finding should exist");
+    let summary = summarize_findings(
+        std::slice::from_ref(noop_exclude_finding),
+        &outcome.fixes,
+        &StructureReport {
+            is_monorepo: false,
+            package_count: 0,
+            env_directories: 0,
+            config_files: 1,
+            recommendations: Vec::new(),
+        },
+    );
+
+    assert_eq!(summary.status, "clean");
+    assert_eq!(summary.blocking_findings, 0);
+    assert_eq!(summary.warning_findings, 0);
+    assert_eq!(summary.info_findings, 1);
 }
 
 #[test]
