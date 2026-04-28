@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use maximus_core::{make_finding, FileKind, FindingInput, ProjectFile, ProjectSnapshot, Severity};
+use maximus_core::{
+    is_ignored_project_path_from_root, make_finding, FileKind, FindingInput, ProjectFile,
+    ProjectSnapshot, Severity,
+};
 
 use crate::check_outcome::CheckOutcome;
 use crate::registry::{package_file_for_directory, read_package_json};
@@ -17,6 +20,14 @@ struct TestRunnerSources {
 }
 
 pub fn run_test_runner_config_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
+    run_test_runner_config_check_with_ignore_root(project, &[], &project.root_dir)
+}
+
+pub(crate) fn run_test_runner_config_check_with_ignore_root(
+    project: &ProjectSnapshot,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
     let mut sources_by_dir = BTreeMap::<PathBuf, TestRunnerSources>::new();
 
     for directory in &project.directories {
@@ -37,7 +48,7 @@ pub fn run_test_runner_config_check(project: &ProjectSnapshot) -> io::Result<Che
         }
     }
 
-    for vitest_file in find_vitest_config_files(&project.root_dir)? {
+    for vitest_file in find_vitest_config_files(&project.root_dir, ignored_patterns, ignore_root)? {
         let directory = vitest_file
             .parent()
             .map(Path::to_path_buf)
@@ -100,14 +111,27 @@ fn package_has_config_field(package_file: &ProjectFile, field: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn find_vitest_config_files(root_dir: &Path) -> io::Result<Vec<PathBuf>> {
+fn find_vitest_config_files(
+    root_dir: &Path,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+) -> io::Result<Vec<PathBuf>> {
+    if is_ignored_project_path_from_root(ignore_root, root_dir, ignored_patterns) {
+        return Ok(Vec::new());
+    }
+
     let mut files = Vec::new();
-    collect_vitest_config_files(root_dir, &mut files)?;
+    collect_vitest_config_files(root_dir, ignored_patterns, ignore_root, &mut files)?;
     files.sort();
     Ok(files)
 }
 
-fn collect_vitest_config_files(directory: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+fn collect_vitest_config_files(
+    directory: &Path,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+    files: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -121,11 +145,16 @@ fn collect_vitest_config_files(directory: &Path, files: &mut Vec<PathBuf>) -> io
         let name = entry.file_name().to_string_lossy().into_owned();
 
         if file_type.is_dir() {
-            if should_skip_directory(&name) {
+            if should_skip_directory(&name)
+                || is_ignored_project_path_from_root(ignore_root, &path, ignored_patterns)
+            {
                 continue;
             }
-            collect_vitest_config_files(&path, files)?;
-        } else if file_type.is_file() && is_vitest_config_name(&name) {
+            collect_vitest_config_files(&path, ignored_patterns, ignore_root, files)?;
+        } else if file_type.is_file()
+            && is_vitest_config_name(&name)
+            && !is_ignored_project_path_from_root(ignore_root, &path, ignored_patterns)
+        {
             files.push(path);
         }
     }

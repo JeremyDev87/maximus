@@ -3,8 +3,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use maximus_core::{
-    make_finding, parse_jsonc, read_text_if_exists, FileKind, FindingInput, ProjectFile,
-    ProjectSnapshot, Severity,
+    is_ignored_project_path_from_root, make_finding, parse_jsonc, read_text_if_exists, FileKind,
+    FindingInput, ProjectFile, ProjectSnapshot, Severity,
 };
 use serde_json::Value;
 
@@ -24,7 +24,15 @@ struct PrettierDocument {
 }
 
 pub fn run_editorconfig_prettier_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome> {
-    let editorconfigs = find_editorconfig_documents(&project.root_dir)?;
+    run_editorconfig_prettier_check_with_ignore_root(project, &[], &project.root_dir)
+}
+
+pub(crate) fn run_editorconfig_prettier_check_with_ignore_root(
+    project: &ProjectSnapshot,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    let editorconfigs = find_editorconfig_documents(project, ignored_patterns, ignore_root)?;
     if editorconfigs.is_empty() {
         return Ok(CheckOutcome {
             findings: Vec::new(),
@@ -176,8 +184,16 @@ fn find_conflicts(
     conflicts
 }
 
-fn find_editorconfig_documents(root_dir: &Path) -> io::Result<Vec<EditorConfigDocument>> {
-    let path = root_dir.join(".editorconfig");
+fn find_editorconfig_documents(
+    project: &ProjectSnapshot,
+    ignored_patterns: &[String],
+    ignore_root: &Path,
+) -> io::Result<Vec<EditorConfigDocument>> {
+    let path = project.root_dir.join(".editorconfig");
+    if is_ignored_project_path_from_root(ignore_root, &path, ignored_patterns) {
+        return Ok(Vec::new());
+    }
+
     let Some(text) = read_text_if_exists(&path)? else {
         return Ok(Vec::new());
     };
@@ -282,23 +298,33 @@ fn normalize_prettier_value(value: &Value) -> Option<String> {
 
 fn parse_editorconfig_values(text: &str) -> BTreeMap<String, String> {
     let mut values = BTreeMap::new();
+    let mut accepts_values = true;
 
     for line in text.lines() {
         let line = strip_editorconfig_comment(line).trim();
-        if line.is_empty() || line.starts_with('[') {
-            if line.starts_with('[') {
-                break;
-            }
+        if line.is_empty() {
             continue;
         }
-
+        if line.starts_with('[') {
+            accepts_values = line == "[*]";
+            continue;
+        }
+        if !accepts_values {
+            continue;
+        }
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
-        values.insert(
-            key.trim().to_ascii_lowercase(),
-            value.trim().to_ascii_lowercase(),
-        );
+
+        match key.trim().to_ascii_lowercase().as_str() {
+            "indent_style" | "indent_size" | "end_of_line" | "max_line_length" => {
+                values.insert(
+                    key.trim().to_ascii_lowercase(),
+                    value.trim().to_ascii_lowercase(),
+                );
+            }
+            _ => {}
+        }
     }
 
     values

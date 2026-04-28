@@ -7,8 +7,15 @@ mod check_outcome;
 #[path = "../src/env.rs"]
 mod env;
 
-use env::{render_created_env_example, render_synced_env_example, run_env_check};
-use maximus_core::{apply_fix, discover_project, FixOperation, FixPlan, Severity};
+use env::{
+    render_created_env_example, render_created_env_example_with_sources, render_synced_env_example,
+    render_synced_env_example_with_sources, run_env_check, run_env_check_with_options,
+    EnvCheckOptions,
+};
+use maximus_core::{
+    apply_fix, discover_project, EnvTemplateRenderOptions, EnvTemplateSourceGroup, FixOperation,
+    FixPlan, Severity,
+};
 use tempfile::TempDir;
 
 #[test]
@@ -515,11 +522,12 @@ fn env_sync_planned_fix_uses_audited_snapshot_text() {
     match &planned.operation {
         FixOperation::SyncEnvExample {
             existing_text,
-            missing_keys,
+            groups,
             ..
         } => {
             assert_eq!(existing_text, "PRIMARY=\n");
-            assert_eq!(missing_keys, &vec!["SECONDARY".to_string()]);
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].keys, vec!["SECONDARY".to_string()]);
         }
         _ => panic!("expected sync env example operation"),
     }
@@ -557,6 +565,84 @@ fn env_example_render_helpers_match_js_create_and_sync_semantics() {
     assert_eq!(
         synced_with_js_like_locale_order,
         "PRIMARY=\nAPI_URL=\nAPI-URL=\nAPI.URL=\n"
+    );
+}
+
+#[test]
+fn env_example_source_comment_helpers_group_and_sort_opt_in_output() {
+    let groups = vec![
+        EnvTemplateSourceGroup {
+            source: Some(".env.local".to_string()),
+            keys: vec!["LOCAL_Z".to_string(), "LOCAL_A".to_string()],
+        },
+        EnvTemplateSourceGroup {
+            source: Some(".env".to_string()),
+            keys: vec![
+                "BASE_Z".to_string(),
+                "BASE_A".to_string(),
+                "BASE_A".to_string(),
+            ],
+        },
+    ];
+
+    assert_eq!(
+        render_created_env_example_with_sources(groups.clone()),
+        "# Source: .env\nBASE_A=\nBASE_Z=\n\n# Source: .env.local\nLOCAL_A=\nLOCAL_Z=\n"
+    );
+    assert_eq!(
+        render_synced_env_example_with_sources("EXISTING=", groups),
+        "EXISTING=\n# Source: .env\nBASE_A=\nBASE_Z=\n\n# Source: .env.local\nLOCAL_A=\nLOCAL_Z=\n"
+    );
+}
+
+#[test]
+fn env_source_comment_option_changes_planned_fix_output_without_default_regression() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        fixture.path().join(".env.local"),
+        "LOCAL_Z=1\nLOCAL_A=2\nSHARED=local\n",
+    );
+    write(
+        fixture.path().join(".env"),
+        "BASE_Z=1\nBASE_A=2\nSHARED=base\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let default_outcome = run_env_check(&project).expect("default check should run");
+    let default_fix = default_outcome
+        .planned_fixes
+        .first()
+        .expect("default planned fix should exist")
+        .clone();
+    apply_fix(&default_fix).expect("default fix should apply");
+    let default_output = fs::read_to_string(fixture.path().join(".env.example"))
+        .expect("default example should exist");
+    assert_eq!(
+        default_output,
+        "BASE_A=\nBASE_Z=\nLOCAL_A=\nLOCAL_Z=\nSHARED=\n"
+    );
+
+    fs::remove_file(fixture.path().join(".env.example")).expect("example should remove");
+    let opt_in_outcome = run_env_check_with_options(
+        &project,
+        &EnvCheckOptions {
+            template_render: EnvTemplateRenderOptions {
+                source_comments: true,
+            },
+        },
+    )
+    .expect("opt-in check should run");
+    let opt_in_fix = opt_in_outcome
+        .planned_fixes
+        .first()
+        .expect("opt-in planned fix should exist")
+        .clone();
+    apply_fix(&opt_in_fix).expect("opt-in fix should apply");
+    let opt_in_output = fs::read_to_string(fixture.path().join(".env.example"))
+        .expect("opt-in example should exist");
+    assert_eq!(
+        opt_in_output,
+        "# Source: .env\nBASE_A=\nBASE_Z=\nSHARED=\n\n# Source: .env.local\nLOCAL_A=\nLOCAL_Z=\n"
     );
 }
 

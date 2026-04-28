@@ -741,6 +741,76 @@ fn gitignore_patterns_do_not_hide_tracked_env_check_inputs() {
 }
 
 #[test]
+fn config_ignore_patterns_hide_vitest_config_from_test_runner_check() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        fixture.path().join("package.json"),
+        r#"{ "name": "fixture" }"#,
+    );
+    write(
+        fixture.path().join("jest.config.js"),
+        "module.exports = {};\n",
+    );
+    write(
+        fixture.path().join("vitest.config.ts"),
+        "export default {};\n",
+    );
+    write(
+        fixture.path().join("maximus.config.json"),
+        r#"{ "ignorePatterns": ["vitest.config.ts"], "checks": { "only": ["test-runner-config"] } }"#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "ignorePatterns should suppress ignored vitest config findings: {findings:?}"
+    );
+}
+
+#[test]
+fn config_ignore_patterns_hide_root_editorconfig_from_editorconfig_prettier_check() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        fixture.path().join(".editorconfig"),
+        "root = true\nindent_style = tab\nindent_size = 4\nend_of_line = crlf\n",
+    );
+    write(
+        fixture.path().join(".prettierrc"),
+        r#"{ "useTabs": false, "tabWidth": 2, "endOfLine": "lf" }"#,
+    );
+    write(
+        fixture.path().join("maximus.config.json"),
+        r#"{ "ignorePatterns": [".editorconfig"], "checks": { "only": ["editorconfig-prettier"] } }"#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.is_empty(),
+        "ignorePatterns should suppress ignored EditorConfig findings: {findings:?}"
+    );
+}
+
+#[test]
 fn gitignore_escaped_leading_bang_matches_literal_path() {
     let fixture = TempDir::new().expect("temp dir should exist");
     fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");

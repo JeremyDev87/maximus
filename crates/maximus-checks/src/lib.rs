@@ -20,15 +20,20 @@ mod workspace_config;
 pub use check_outcome::CheckOutcome;
 pub use config_duplicates::run_config_duplicate_check;
 pub use editorconfig_prettier::run_editorconfig_prettier_check;
-pub use env::{render_created_env_example, render_synced_env_example, run_env_check};
+pub use env::{
+    render_created_env_example, render_created_env_example_with_sources, render_synced_env_example,
+    render_synced_env_example_with_sources, run_env_check, run_env_check_with_options,
+    EnvCheckOptions,
+};
 pub use eslint_prettier::run_eslint_prettier_check;
 pub use jsx_config::run_jsx_config_check;
 pub use module_system::run_module_system_check;
 pub use monorepo_tsconfig::run_monorepo_tsconfig_check;
 pub use registry::{
     audit_project, audit_project_with_config, audit_project_with_config_root, registered_check_ids,
-    run_registered_checks, run_registered_checks_with_config,
-    run_registered_checks_with_config_root, run_registered_checks_with_filters, AuditedProject,
+    run_env_check_with_config_root_and_options, run_registered_checks,
+    run_registered_checks_with_config, run_registered_checks_with_config_root,
+    run_registered_checks_with_filters, AuditedProject,
 };
 pub use structure::build_structure_report;
 pub use test_runner_config::run_test_runner_config_check;

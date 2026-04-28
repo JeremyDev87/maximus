@@ -12,17 +12,18 @@ use maximus_core::{
 use serde_json::{Map, Value};
 
 use crate::check_outcome::CheckOutcome;
+use crate::editorconfig_prettier::run_editorconfig_prettier_check_with_ignore_root;
 use crate::jsx_config::run_jsx_config_check;
 use crate::lockfiles::run_lockfiles_check_with_ignore_root;
 use crate::module_system::run_module_system_check;
 use crate::monorepo_tsconfig::run_monorepo_tsconfig_check;
 use crate::package_entrypoints::run_package_entrypoints_check;
-use crate::test_runner_config::run_test_runner_config_check;
+use crate::test_runner_config::run_test_runner_config_check_with_ignore_root;
 use crate::vite_tsconfig_alias::run_vite_tsconfig_alias_check;
 use crate::workspace_config::run_workspace_config_check;
 use crate::{
-    build_structure_report, run_config_duplicate_check, run_editorconfig_prettier_check,
-    run_env_check, run_eslint_prettier_check, run_tsconfig_check,
+    build_structure_report, run_config_duplicate_check, run_env_check_with_options,
+    run_eslint_prettier_check, run_tsconfig_check, EnvCheckOptions,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -405,6 +406,20 @@ fn run_env_check_registered(
     config: &MaximusConfig,
     ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
+    run_env_check_with_config_root_and_options(
+        project,
+        config,
+        ignore_root,
+        &EnvCheckOptions::default(),
+    )
+}
+
+pub fn run_env_check_with_config_root_and_options(
+    project: &ProjectSnapshot,
+    config: &MaximusConfig,
+    ignore_root: &Path,
+    options: &EnvCheckOptions,
+) -> io::Result<CheckOutcome> {
     if !config.gitignore_patterns.is_empty() {
         let non_git_patterns = config.non_git_ignore_patterns();
         let env_project = if non_git_patterns.is_empty() {
@@ -412,10 +427,10 @@ fn run_env_check_registered(
         } else {
             discover_project_with_ignore_root(&project.root_dir, &non_git_patterns, ignore_root)?
         };
-        return run_env_check(&env_project);
+        return run_env_check_with_options(&env_project, options);
     }
 
-    run_env_check(project)
+    run_env_check_with_options(project, options)
 }
 
 fn run_eslint_prettier_check_registered(
@@ -493,18 +508,20 @@ fn run_workspace_config_check_registered(
 
 fn run_test_runner_config_check_registered(
     project: &ProjectSnapshot,
-    _config: &MaximusConfig,
-    _ignore_root: &Path,
+    config: &MaximusConfig,
+    ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
-    run_test_runner_config_check(project)
+    let ignored_patterns = config.effective_ignore_patterns();
+    run_test_runner_config_check_with_ignore_root(project, &ignored_patterns, ignore_root)
 }
 
 fn run_editorconfig_prettier_check_registered(
     project: &ProjectSnapshot,
-    _config: &MaximusConfig,
-    _ignore_root: &Path,
+    config: &MaximusConfig,
+    ignore_root: &Path,
 ) -> io::Result<CheckOutcome> {
-    run_editorconfig_prettier_check(project)
+    let ignored_patterns = config.effective_ignore_patterns();
+    run_editorconfig_prettier_check_with_ignore_root(project, &ignored_patterns, ignore_root)
 }
 
 fn apply_severity_overrides(

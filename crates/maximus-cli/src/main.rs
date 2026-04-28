@@ -14,11 +14,15 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::process;
 
-use maximus_checks::{audit_project_with_config_root, registered_check_ids};
+use maximus_checks::{
+    audit_project_with_config_root, registered_check_ids,
+    run_env_check_with_config_root_and_options, EnvCheckOptions,
+};
 use maximus_core::{
     apply_fixes, find_ignore_root, load_ignore_file_pattern_sources, load_maximus_config,
     preview_fixes, scope_ignore_patterns, select_fix_plans, select_planned_fixes, AuditResult,
-    FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
+    EnvTemplateRenderOptions, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
+    PlannedFix,
 };
 
 use crate::args::{parse_args, ArgsError, Flags, OutputFormat};
@@ -164,8 +168,11 @@ fn run_fix_command(
     flags: &Flags,
     resolved: &ResolvedConfig,
 ) -> Result<i32, CliError> {
-    let initial =
+    let mut initial =
         audit_project_with_config_root(target_dir, &resolved.config, &resolved.ignore_root)?;
+    if flags.env_source_comments {
+        apply_env_source_comment_fix_plans(&mut initial.planned_fixes, &initial.project, resolved)?;
+    }
     if initial.planned_fixes.len() != initial.result.fixes.len() {
         return Err(CliError::Io(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -418,13 +425,14 @@ fn validate_check_ids(source: &str, ids: &[String]) -> Result<(), CliError> {
 }
 
 fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), CliError> {
-    let uses_fix_only_flags =
-        flags.diff || !flags.fix_ids.is_empty() || !flags.fix_prefixes.is_empty();
+    let uses_fix_only_flags = flags.diff
+        || flags.env_source_comments
+        || !flags.fix_ids.is_empty()
+        || !flags.fix_prefixes.is_empty();
 
     if uses_fix_only_flags && (flags.help || command != Some("fix")) {
         return Err(CliError::InvalidArguments(
-            "Options \"--diff\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\"."
-                .to_string(),
+            "Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".".to_string(),
         ));
     }
 
@@ -455,6 +463,40 @@ fn result_with_selected_fixes(result: &AuditResult, fixes: Vec<FixPlan>) -> Audi
     selected.summary.fixes_available = fixes.len();
     selected.fixes = fixes;
     selected
+}
+
+fn apply_env_source_comment_fix_plans(
+    planned_fixes: &mut [PlannedFix],
+    project: &maximus_core::ProjectSnapshot,
+    resolved: &ResolvedConfig,
+) -> Result<(), CliError> {
+    let env_outcome = run_env_check_with_config_root_and_options(
+        project,
+        &resolved.config,
+        &resolved.ignore_root,
+        &EnvCheckOptions {
+            template_render: EnvTemplateRenderOptions {
+                source_comments: true,
+            },
+        },
+    )?;
+    let env_plans = env_outcome
+        .planned_fixes
+        .into_iter()
+        .map(|fix| (fix.public.id.clone(), fix))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    for fix in planned_fixes {
+        if !fix.public.id.starts_with("env-example:") {
+            continue;
+        }
+
+        if let Some(replacement) = env_plans.get(&fix.public.id) {
+            *fix = replacement.clone();
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
