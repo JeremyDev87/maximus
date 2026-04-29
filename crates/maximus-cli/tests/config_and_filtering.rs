@@ -1006,6 +1006,255 @@ fn gitignore_patterns_do_not_hide_tracked_env_check_inputs() {
 }
 
 #[test]
+fn gitignore_suffix_env_globs_do_not_hide_env_check_inputs() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(fixture.path().join(".env"), "SECRET=one\nSECRET=two\n");
+    write(
+        fixture.path().join("archive.env/.env"),
+        "ARCHIVE_SECRET=one\nARCHIVE_SECRET=two\n",
+    );
+    write(fixture.path().join(".gitignore"), "*.env\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let root_env = fixture.path().join(".env").to_string_lossy().into_owned();
+    let archive_env = fixture
+        .path()
+        .join("archive.env/.env")
+        .to_string_lossy()
+        .into_owned();
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(&format!("env-duplicate:{root_env}:SECRET:")))
+        }),
+        "suffix-style gitignore globs should not remove env files from env checks: {findings:?}"
+    );
+    assert!(
+        findings
+            .iter()
+            .all(|finding| !finding.to_string().contains(&archive_env)),
+        "suffix-style gitignore globs should still hide matching directories: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_env_globs_with_variable_suffixes_do_not_hide_env_check_inputs() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(
+        fixture.path().join(".env.production"),
+        "PRODUCTION_SECRET=one\nPRODUCTION_SECRET=two\n",
+    );
+    write(
+        fixture.path().join(".env.production.local"),
+        "LOCAL_SECRET=one\nLOCAL_SECRET=two\n",
+    );
+    write(
+        fixture.path().join(".gitignore"),
+        ".env.prod*\n.env.*.local\n",
+    );
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let production_env = fixture
+        .path()
+        .join(".env.production")
+        .to_string_lossy()
+        .into_owned();
+    let local_env = fixture
+        .path()
+        .join(".env.production.local")
+        .to_string_lossy()
+        .into_owned();
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"].as_str().is_some_and(|id| {
+                id.starts_with(&format!(
+                    "env-duplicate:{production_env}:PRODUCTION_SECRET:"
+                ))
+            })
+        }),
+        "env glob patterns should not remove .env.production from env checks: {findings:?}"
+    );
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"].as_str().is_some_and(|id| {
+                id.starts_with(&format!("env-duplicate:{local_env}:LOCAL_SECRET:"))
+            })
+        }),
+        "env glob patterns should not remove .env.production.local from env checks: {findings:?}"
+    );
+}
+
+#[test]
+fn broad_env_globs_still_hide_matching_directories() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(
+        fixture.path().join("old-env-copy/.env"),
+        "LANE_SECRET=one\nLANE_SECRET=two\n",
+    );
+    write(fixture.path().join(".gitignore"), "*env*\n");
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let ignored_env = fixture
+        .path()
+        .join("old-env-copy/.env")
+        .to_string_lossy()
+        .into_owned();
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings
+            .iter()
+            .all(|finding| !finding.to_string().contains(&ignored_env)),
+        "broad env globs should still hide matching directories: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_negated_env_patterns_are_kept_for_env_check_rediscovery() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(fixture.path().join(".env"), "SECRET=one\n");
+    write(fixture.path().join(".env.example"), "SECRET=\n");
+    write(
+        fixture.path().join(".gitignore"),
+        ".env\n*.example\n!.env.example\n",
+    );
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().all(|finding| {
+            finding["id"].as_str().is_none_or(|id| {
+                !id.starts_with(&format!(
+                    "env-example-missing:{}",
+                    fixture.path().to_string_lossy()
+                ))
+            })
+        }),
+        "negated env patterns should keep whitelisted env templates visible: {findings:?}"
+    );
+}
+
+#[test]
+fn gitignore_env_patterns_do_not_reinclude_worktree_env_files() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    fs::create_dir_all(fixture.path().join(".git")).expect("git dir should exist");
+    write(fixture.path().join(".env"), "SECRET=one\nSECRET=two\n");
+    write(fixture.path().join(".env.local.example"), "SECRET=\n");
+    write(
+        fixture.path().join(".worktrees/lane/.env"),
+        "LANE_SECRET=one\nLANE_SECRET=two\n",
+    );
+    write(
+        fixture.path().join(".gitignore"),
+        ".env*\n!.env.local.example\n.worktrees/\n",
+    );
+
+    let output = maximus_bin()
+        .args([
+            "audit",
+            fixture.path().to_string_lossy().as_ref(),
+            "--only",
+            "env",
+            "--json",
+        ])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let root_env = fixture.path().join(".env").to_string_lossy().into_owned();
+    let worktree_env = fixture
+        .path()
+        .join(".worktrees/lane/.env")
+        .to_string_lossy()
+        .into_owned();
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(&format!("env-duplicate:{root_env}:SECRET:")))
+        }),
+        "root .env duplicate should remain visible to env checks: {findings:?}"
+    );
+    assert!(
+        findings
+            .iter()
+            .all(|finding| !finding.to_string().contains(&worktree_env)),
+        ".worktrees env copies should stay excluded from env checks: {findings:?}"
+    );
+}
+
+#[test]
 fn config_ignore_patterns_hide_vitest_config_from_test_runner_check() {
     let fixture = TempDir::new().expect("temp dir should exist");
     write(

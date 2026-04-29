@@ -10,6 +10,7 @@ use maximus_core::{
     sort_findings, unique_fixes, AuditResult, CheckFilterConfig, ConfigSeverity, MaximusConfig,
     PlannedFix, ProjectDirectory, ProjectFile, ProjectSnapshot, Severity,
 };
+use maximus_core::{is_concrete_env_file_name, is_template_env_file_name};
 use serde_json::{Map, Value};
 
 use crate::check_outcome::CheckOutcome;
@@ -433,16 +434,140 @@ pub fn run_env_check_with_config_root_and_options(
     options: &EnvCheckOptions,
 ) -> io::Result<CheckOutcome> {
     if !config.gitignore_patterns.is_empty() {
-        let non_git_patterns = config.non_git_ignore_patterns();
-        let env_project = if non_git_patterns.is_empty() {
+        let ignored_patterns = env_rediscovery_ignore_patterns(config);
+        let env_project = if ignored_patterns.is_empty() {
             discover_project(&project.root_dir)?
         } else {
-            discover_project_with_ignore_root(&project.root_dir, &non_git_patterns, ignore_root)?
+            discover_project_with_ignore_root(&project.root_dir, &ignored_patterns, ignore_root)?
         };
         return run_env_check_with_options(&env_project, options);
     }
 
     run_env_check_with_options(project, options)
+}
+
+fn env_rediscovery_ignore_patterns(config: &MaximusConfig) -> Vec<String> {
+    let mut patterns = config
+        .gitignore_patterns
+        .iter()
+        .filter_map(|pattern| env_rediscovery_gitignore_pattern(pattern))
+        .collect::<Vec<_>>();
+    patterns.extend(config.non_git_ignore_patterns());
+    patterns
+}
+
+fn env_rediscovery_gitignore_pattern(pattern: &str) -> Option<String> {
+    if is_env_file_name_ignore_pattern(pattern) {
+        Some(format!("{}/", pattern.trim_end().trim_end_matches('/')))
+    } else {
+        Some(pattern.to_string())
+    }
+}
+
+fn is_env_file_name_ignore_pattern(pattern: &str) -> bool {
+    let pattern = pattern.trim_end();
+    if pattern.starts_with('!') {
+        return false;
+    }
+    if pattern.ends_with('/') {
+        return false;
+    }
+
+    let pattern = pattern.trim_start_matches('/');
+    let file_pattern = pattern.rsplit('/').next().unwrap_or(pattern);
+    if file_pattern.contains('*') || file_pattern.contains('?') {
+        return is_env_specific_glob_pattern(file_pattern)
+            && glob_pattern_can_match_env_file_name(file_pattern);
+    }
+
+    is_concrete_env_file_name(file_pattern) || is_template_env_file_name(file_pattern)
+}
+
+fn is_env_specific_glob_pattern(pattern: &str) -> bool {
+    pattern.starts_with(".env") || pattern.starts_with("*.env")
+}
+
+fn glob_pattern_can_match_env_file_name(pattern: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let mut memo = vec![vec![None; 7]; pattern.len() + 1];
+    env_name_glob_intersects(&pattern, 0, 0, &mut memo)
+}
+
+fn env_name_glob_intersects(
+    pattern: &[char],
+    pattern_index: usize,
+    env_state: usize,
+    memo: &mut [Vec<Option<bool>>],
+) -> bool {
+    if pattern_index == pattern.len() {
+        return env_name_state_accepts(env_state);
+    }
+    if let Some(result) = memo[pattern_index][env_state] {
+        return result;
+    }
+
+    let result = match pattern[pattern_index] {
+        '*' => env_name_wildcard_closure(env_state)
+            .iter()
+            .enumerate()
+            .filter(|(_, reachable)| **reachable)
+            .any(|(state, _)| env_name_glob_intersects(pattern, pattern_index + 1, state, memo)),
+        '?' => env_name_wildcard_next_states(env_state)
+            .iter()
+            .any(|state| env_name_glob_intersects(pattern, pattern_index + 1, *state, memo)),
+        character => env_name_next_state(env_state, character)
+            .is_some_and(|state| env_name_glob_intersects(pattern, pattern_index + 1, state, memo)),
+    };
+    memo[pattern_index][env_state] = Some(result);
+    result
+}
+
+fn env_name_next_state(state: usize, character: char) -> Option<usize> {
+    match (state, character) {
+        (0, '.') => Some(1),
+        (1, 'e') => Some(2),
+        (2, 'n') => Some(3),
+        (3, 'v') => Some(4),
+        (4, '.') => Some(5),
+        (5, '/') | (6, '/') => None,
+        (5, _) => Some(6),
+        (6, _) => Some(6),
+        _ => None,
+    }
+}
+
+fn env_name_wildcard_next_states(state: usize) -> &'static [usize] {
+    match state {
+        0 => &[1],
+        1 => &[2],
+        2 => &[3],
+        3 => &[4],
+        4 => &[5],
+        5 => &[6],
+        6 => &[6],
+        _ => &[],
+    }
+}
+
+fn env_name_wildcard_closure(state: usize) -> [bool; 7] {
+    let mut reachable = [false; 7];
+    let mut stack = vec![state];
+    reachable[state] = true;
+
+    while let Some(state) = stack.pop() {
+        for next_state in env_name_wildcard_next_states(state) {
+            if !reachable[*next_state] {
+                reachable[*next_state] = true;
+                stack.push(*next_state);
+            }
+        }
+    }
+
+    reachable
+}
+
+fn env_name_state_accepts(state: usize) -> bool {
+    matches!(state, 4 | 6)
 }
 
 fn run_eslint_prettier_check_registered(

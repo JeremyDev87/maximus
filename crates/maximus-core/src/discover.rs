@@ -20,6 +20,7 @@ const IGNORED_DIRECTORIES: &[&str] = &[
     ".svelte-kit",
     ".turbo",
     ".vercel",
+    ".worktrees",
     "build",
     "coverage",
     "dist",
