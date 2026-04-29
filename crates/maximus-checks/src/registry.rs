@@ -15,10 +15,13 @@ use serde_json::{Map, Value};
 
 use crate::check_outcome::CheckOutcome;
 use crate::editorconfig_prettier::run_editorconfig_prettier_check_with_ignore_root;
+use crate::ignore_file_drift::run_ignore_file_drift_check_with_ignore_root;
 use crate::jsx_config::run_jsx_config_check;
 use crate::lockfiles::run_lockfiles_check_with_ignore_root;
 use crate::module_system::run_module_system_check;
 use crate::monorepo_tsconfig::run_monorepo_tsconfig_check;
+use crate::node_matrix::run_node_matrix_check_with_ignore_root;
+use crate::npmignore_files::run_npmignore_files_check_with_ignore_root;
 use crate::package_entrypoints::run_package_entrypoints_check;
 use crate::test_runner_config::run_test_runner_config_check_with_ignore_root;
 use crate::vite_tsconfig_alias::run_vite_tsconfig_alias_check;
@@ -95,6 +98,18 @@ const REGISTERED_CHECKS: &[RegisteredCheck] = &[
         id: "editorconfig-prettier",
         run: run_editorconfig_prettier_check_registered,
     },
+    RegisteredCheck {
+        id: "ignore-drift",
+        run: run_ignore_file_drift_check_registered,
+    },
+    RegisteredCheck {
+        id: "node-matrix",
+        run: run_node_matrix_check_registered,
+    },
+    RegisteredCheck {
+        id: "npmignore-files",
+        run: run_npmignore_files_check_registered,
+    },
 ];
 
 pub fn registered_check_ids() -> &'static [&'static str] {
@@ -112,6 +127,9 @@ pub fn registered_check_ids() -> &'static [&'static str] {
         "workspace-config",
         "test-runner-config",
         "editorconfig-prettier",
+        "ignore-drift",
+        "node-matrix",
+        "npmignore-files",
     ]
 }
 
@@ -444,6 +462,33 @@ pub fn run_env_check_with_config_root_and_options(
     }
 
     run_env_check_with_options(project, options)
+}
+
+fn run_ignore_file_drift_check_registered(
+    project: &ProjectSnapshot,
+    config: &MaximusConfig,
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    let ignored_patterns = config.effective_ignore_patterns();
+    run_ignore_file_drift_check_with_ignore_root(project, &ignored_patterns, ignore_root)
+}
+
+fn run_node_matrix_check_registered(
+    project: &ProjectSnapshot,
+    config: &MaximusConfig,
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    let ignored_patterns = config.effective_ignore_patterns();
+    run_node_matrix_check_with_ignore_root(project, &ignored_patterns, ignore_root)
+}
+
+fn run_npmignore_files_check_registered(
+    project: &ProjectSnapshot,
+    config: &MaximusConfig,
+    ignore_root: &Path,
+) -> io::Result<CheckOutcome> {
+    let ignored_patterns = config.non_git_ignore_patterns();
+    run_npmignore_files_check_with_ignore_root(project, &ignored_patterns, ignore_root)
 }
 
 fn env_rediscovery_ignore_patterns(config: &MaximusConfig) -> Vec<String> {

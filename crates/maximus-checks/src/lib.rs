@@ -5,10 +5,13 @@ mod config_duplicates;
 mod editorconfig_prettier;
 mod env;
 mod eslint_prettier;
+mod ignore_file_drift;
 mod jsx_config;
 pub mod lockfiles;
 mod module_system;
 mod monorepo_tsconfig;
+mod node_matrix;
+mod npmignore_files;
 pub mod package_entrypoints;
 pub mod registry;
 pub mod structure;
@@ -26,9 +29,12 @@ pub use env::{
     EnvCheckOptions,
 };
 pub use eslint_prettier::run_eslint_prettier_check;
+pub use ignore_file_drift::run_ignore_file_drift_check;
 pub use jsx_config::run_jsx_config_check;
 pub use module_system::run_module_system_check;
 pub use monorepo_tsconfig::run_monorepo_tsconfig_check;
+pub use node_matrix::run_node_matrix_check;
+pub use npmignore_files::run_npmignore_files_check;
 pub use registry::{
     audit_project, audit_project_with_config, audit_project_with_config_root, registered_check_ids,
     run_env_check_with_config_root_and_options, run_registered_checks,
