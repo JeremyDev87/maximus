@@ -37,7 +37,7 @@ pub use fixes::{
     select_planned_fixes, AppliedFix, FixFilePreview, FixOperation, FixSelector, PlannedFix,
     PreviewedFix,
 };
-pub use fs::{path_exists, read_text_if_exists, write_text};
+pub use fs::{path_exists, prepare_text_write, read_text_if_exists, write_text};
 pub use jsonc::{parse_jsonc, ParseJsoncError};
 pub use models::{
     AuditContext, AuditResult, AuditSummary, BaselineEntry, CheckId, FileKind, Finding, FixPlan,

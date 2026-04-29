@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { resolvePackedWrapperLaunch } from "../scripts/lib/packed-wrapper-launch.mjs";
 
@@ -55,6 +55,23 @@ test("packed install without the optional runtime blocks config files, Rust-only
     /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
   );
   assert.match(rustOnlyResult.stderr, /--only/);
+
+  const outputPath = path.join(installRoot, "fallback-report.json");
+  const outputResult = await runPackedWrapper(installRoot, [
+    "audit",
+    cleanFixtureDir,
+    "--json",
+    "--output",
+    outputPath,
+  ]);
+  assert.equal(outputResult.code, 1);
+  assert.equal(outputResult.stdout.trim(), "");
+  assert.match(
+    outputResult.stderr,
+    /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
+  );
+  assert.match(outputResult.stderr, /--output/);
+  await assert.rejects(access(outputPath));
 
   const fixResult = await runPackedWrapper(installRoot, ["fix", cleanFixtureDir]);
   assert.equal(fixResult.code, 1);

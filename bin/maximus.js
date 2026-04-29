@@ -208,7 +208,7 @@ function parseCompatInvocation(args) {
   let pathArg;
   const unsupportedFlags = [];
   const commandNames = new Set(["audit", "doctor", "fix"]);
-  const valueFlags = new Set(["--only", "--skip", "--fail-on", "--fix-id", "--fix-prefix", "--format"]);
+  const valueFlags = new Set(["--only", "--skip", "--fail-on", "--fix-id", "--fix-prefix", "--format", "--output"]);
   const passthroughFlags = new Set(["--dry-run", "--json"]);
 
   for (let index = 0; index < args.length; index += 1) {
@@ -370,7 +370,7 @@ function formatCompatHelp() {
     "  maximus fix [path] --dry-run [--json]",
     "  maximus help",
     "",
-    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, `--fix-prefix`, and `--format` require the Rust runtime, and `fix` is only available with `--dry-run`.",
+    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, `--fix-prefix`, `--format`, and `--output` require the Rust runtime, and `fix` is only available with `--dry-run`.",
   ].join("\n");
 }
 

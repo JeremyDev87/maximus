@@ -22,9 +22,9 @@ fn no_args_prints_help() {
             "Bring order to chaotic configs.",
             "",
             "Usage",
-            "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
-            "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]",
-            "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json]",
+            "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
+            "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
+            "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json] [--output <path>]",
             "  maximus help",
             "",
         ]
@@ -43,7 +43,7 @@ fn help_subcommand_prints_usage() {
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
         .contains(
-            "maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json]"
+            "maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]"
         ));
 }
 

@@ -11,6 +11,7 @@ pub struct Flags {
     pub fix_prefixes: Vec<String>,
     pub help: bool,
     pub output_format: OutputFormat,
+    pub output_path: Option<OsString>,
     pub only_checks: Option<Vec<String>>,
     pub skip_checks: Option<Vec<String>>,
 }
@@ -108,6 +109,9 @@ where
                     "--format",
                 )?;
             }
+            Some("--output") => {
+                flags.output_path = Some(next_output_value(tokens.next())?);
+            }
             Some("--skip") => {
                 let value = next_option_value(tokens.next(), "--skip")?;
                 let values = split_csv_values(&value, "--skip")?;
@@ -151,6 +155,20 @@ fn next_option_value(value: Option<OsString>, flag: &'static str) -> Result<OsSt
     }
 
     Ok(value)
+}
+
+fn next_output_value(value: Option<OsString>) -> Result<OsString, ArgsError> {
+    let Some(value) = value else {
+        return Err(ArgsError::MissingValue("--output"));
+    };
+
+    match value.to_str() {
+        Some("") => Err(ArgsError::EmptyValue("--output")),
+        Some(candidate) if candidate.starts_with('-') && candidate != "-" => {
+            Err(ArgsError::MissingValue("--output"))
+        }
+        _ => Ok(value),
+    }
 }
 
 fn split_csv_values(value: &OsString, flag: &'static str) -> Result<Vec<String>, ArgsError> {
@@ -226,6 +244,7 @@ mod tests {
                     fix_prefixes: Vec::new(),
                     help: false,
                     output_format: OutputFormat::Json,
+                    output_path: None,
                     only_checks: None,
                     skip_checks: None,
                 },
@@ -282,6 +301,30 @@ mod tests {
         );
         assert_eq!(parsed.flags.fix_prefixes, vec!["env-example:".to_string()]);
         assert!(parsed.flags.diff);
+    }
+
+    #[test]
+    fn parse_args_collects_output_path_and_stdout_marker() {
+        let parsed = parse_args(["audit", "--json", "--output", "reports/audit.json"])
+            .expect("args should parse");
+
+        assert_eq!(
+            parsed.flags.output_path,
+            Some(OsString::from("reports/audit.json"))
+        );
+
+        let parsed = parse_args(["audit", "--format", "markdown", "--output", "-"])
+            .expect("stdout marker should parse");
+
+        assert_eq!(parsed.flags.output_path, Some(OsString::from("-")));
+    }
+
+    #[test]
+    fn parse_args_errors_when_output_path_value_is_missing() {
+        let error =
+            parse_args(["audit", "--output", "--json"]).expect_err("output path should fail");
+
+        assert_eq!(error, ArgsError::MissingValue("--output"));
     }
 
     #[test]

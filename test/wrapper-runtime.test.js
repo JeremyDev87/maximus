@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 test("wrapper preserves conventional exit code when the child terminates by signal", async (t) => {
@@ -301,6 +301,21 @@ test("wrapper blocks the frozen JS fallback when Rust-only flags are requested",
   assert.equal(result.stdout.trim(), "");
   assert.match(result.stderr, /A Rust runtime is required/);
   assert.match(result.stderr, /--only/);
+
+  const outputPath = path.join(rootDir, "report.json");
+  const outputResult = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
+    "audit",
+    ".",
+    "--json",
+    "--output",
+    outputPath,
+  ]);
+
+  assert.equal(outputResult.code, 1);
+  assert.equal(outputResult.stdout.trim(), "");
+  assert.match(outputResult.stderr, /A Rust runtime is required/);
+  assert.match(outputResult.stderr, /--output/);
+  await assert.rejects(access(outputPath));
 });
 
 test("wrapper blocks output format flags on the frozen JS fallback", async (t) => {

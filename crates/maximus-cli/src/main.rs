@@ -11,7 +11,7 @@ use std::env;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::io::{self, Write};
 use std::process;
 
 use maximus_checks::{
@@ -20,9 +20,9 @@ use maximus_checks::{
 };
 use maximus_core::{
     apply_fixes, find_ignore_root, load_ignore_file_pattern_sources, load_maximus_config,
-    preview_fixes, scope_ignore_patterns, select_fix_plans, select_planned_fixes, AuditResult,
-    EnvTemplateRenderOptions, FailOnLevel, FixPlan, FixSelector, LoadConfigError, MaximusConfig,
-    PlannedFix,
+    prepare_text_write, preview_fixes, scope_ignore_patterns, select_fix_plans,
+    select_planned_fixes, write_text, AuditResult, EnvTemplateRenderOptions, FailOnLevel, FixPlan,
+    FixSelector, LoadConfigError, MaximusConfig, PlannedFix,
 };
 
 use crate::args::{parse_args, ArgsError, Flags, OutputFormat};
@@ -192,6 +192,9 @@ fn run_fix_command(
     }
     let selected_fixes = select_fix_plans(&initial.result.fixes, &selector);
     let selected_initial = result_with_selected_fixes(&initial.result, selected_fixes.clone());
+    if !flags.dry_run {
+        prepare_report_output(flags)?;
+    }
     let previewed = if flags.dry_run && flags.diff {
         Some(preview_fixes(&planned)?)
     } else {
@@ -232,41 +235,25 @@ fn run_fix_command(
 }
 
 fn print_audit_report(flags: &Flags, result: &AuditResult) -> Result<(), CliError> {
-    match flags.output_format {
-        crate::args::OutputFormat::Text => {
-            println!("{}", report_text::format_audit_report(result));
-        }
-        crate::args::OutputFormat::Json => {
-            println!("{}", report_json::render_audit_result(result)?);
-        }
-        crate::args::OutputFormat::Markdown => {
-            println!("{}", report_markdown::format_audit_report(result));
-        }
-        crate::args::OutputFormat::Sarif => {
-            println!("{}", report_sarif::render_audit_result(result)?);
-        }
-    }
+    let report = match flags.output_format {
+        crate::args::OutputFormat::Text => report_text::format_audit_report(result),
+        crate::args::OutputFormat::Json => report_json::render_audit_result(result)?,
+        crate::args::OutputFormat::Markdown => report_markdown::format_audit_report(result),
+        crate::args::OutputFormat::Sarif => report_sarif::render_audit_result(result)?,
+    };
 
-    Ok(())
+    write_report_output(flags, &report)
 }
 
 fn print_doctor_report(flags: &Flags, result: &AuditResult) -> Result<(), CliError> {
-    match flags.output_format {
-        crate::args::OutputFormat::Text => {
-            println!("{}", report_text::format_doctor_report(result));
-        }
-        crate::args::OutputFormat::Json => {
-            println!("{}", report_json::render_audit_result(result)?);
-        }
-        crate::args::OutputFormat::Markdown => {
-            println!("{}", report_markdown::format_doctor_report(result));
-        }
-        crate::args::OutputFormat::Sarif => {
-            println!("{}", report_sarif::render_doctor_result(result)?);
-        }
-    }
+    let report = match flags.output_format {
+        crate::args::OutputFormat::Text => report_text::format_doctor_report(result),
+        crate::args::OutputFormat::Json => report_json::render_audit_result(result)?,
+        crate::args::OutputFormat::Markdown => report_markdown::format_doctor_report(result),
+        crate::args::OutputFormat::Sarif => report_sarif::render_doctor_result(result)?,
+    };
 
-    Ok(())
+    write_report_output(flags, &report)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -280,61 +267,68 @@ fn print_fix_report(
     preview_report: Option<&str>,
     previews: Option<&[maximus_core::PreviewedFix]>,
 ) -> Result<(), CliError> {
-    match flags.output_format {
-        crate::args::OutputFormat::Text => {
-            println!(
-                "{}",
-                report_text::format_fix_result(
-                    flags.dry_run,
-                    target_dir,
-                    initial,
-                    applied,
-                    final_result,
-                    selected_fixes,
-                    preview_report,
-                )
-            );
+    let report = match flags.output_format {
+        crate::args::OutputFormat::Text => report_text::format_fix_result(
+            flags.dry_run,
+            target_dir,
+            initial,
+            applied,
+            final_result,
+            selected_fixes,
+            preview_report,
+        ),
+        crate::args::OutputFormat::Json => report_json::render_fix_result(
+            flags.dry_run,
+            target_dir,
+            initial,
+            applied,
+            final_result,
+            previews,
+        )?,
+        crate::args::OutputFormat::Markdown => report_markdown::format_fix_result(
+            flags.dry_run,
+            target_dir,
+            initial,
+            applied,
+            final_result,
+            selected_fixes,
+            preview_report,
+        ),
+        crate::args::OutputFormat::Sarif => report_sarif::render_fix_result(
+            flags.dry_run,
+            target_dir,
+            initial,
+            applied,
+            final_result,
+            previews,
+        )?,
+    };
+
+    write_report_output(flags, &report)
+}
+
+fn write_report_output(flags: &Flags, report: &str) -> Result<(), CliError> {
+    let content = format!("{report}\n");
+
+    match flags.output_path.as_deref() {
+        Some(output_path) if output_path != OsStr::new("-") => {
+            write_text(std::path::Path::new(output_path), &content)?;
         }
-        crate::args::OutputFormat::Json => {
-            println!(
-                "{}",
-                report_json::render_fix_result(
-                    flags.dry_run,
-                    target_dir,
-                    initial,
-                    applied,
-                    final_result,
-                    previews,
-                )?
-            );
+        _ => {
+            io::stdout().lock().write_all(content.as_bytes())?;
         }
-        crate::args::OutputFormat::Markdown => {
-            println!(
-                "{}",
-                report_markdown::format_fix_result(
-                    flags.dry_run,
-                    target_dir,
-                    initial,
-                    applied,
-                    final_result,
-                    selected_fixes,
-                    preview_report,
-                )
-            );
-        }
-        crate::args::OutputFormat::Sarif => {
-            println!(
-                "{}",
-                report_sarif::render_fix_result(
-                    flags.dry_run,
-                    target_dir,
-                    initial,
-                    applied,
-                    final_result,
-                    previews,
-                )?
-            );
-        }
+    }
+
+    Ok(())
+}
+
+fn prepare_report_output(flags: &Flags) -> Result<(), CliError> {
+    if let Some(output_path) = flags
+        .output_path
+        .as_deref()
+        .filter(|output_path| *output_path != OsStr::new("-"))
+    {
+        prepare_text_write(std::path::Path::new(output_path))?;
     }
 
     Ok(())
