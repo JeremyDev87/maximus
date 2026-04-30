@@ -2,11 +2,12 @@ name: release-docs
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "README.md"
       - "README.en.md"
       - "action.yml"
-      - "package.json"
       - "scripts/update-release-docs.mjs"
       - ".github/workflows/release-docs.yml"
   pull_request:

@@ -23,7 +23,7 @@ runs:
       with:
         node-version: "24"
 
-    - name: Install Maximus wrapper from this action ref
+    - name: Install published Maximus wrapper for this action ref
       shell: bash
       env:
         MAXIMUS_REGISTRY_URL: ${{ inputs.registry-url }}
@@ -41,7 +41,8 @@ runs:
           export npm_config_registry="$MAXIMUS_REGISTRY_URL"
         fi
 
-        npm install --no-package-lock --prefix "$install_root" "$GITHUB_ACTION_PATH"
+        package_version="$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package.json').version")"
+        npm install --no-package-lock --prefix "$install_root" "@jeremyfellaz/maximus@$package_version"
 
     - name: Assert native runtime is installed
       shell: bash

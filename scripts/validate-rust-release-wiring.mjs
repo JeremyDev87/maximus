@@ -85,7 +85,9 @@ function validateAction(actionText) {
   assertContains(actionText, 'uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238', "action node setup");
   assertContains(actionText, "MAXIMUS_REGISTRY_URL: ${{ inputs.registry-url }}", "action registry env wiring");
   assertContains(actionText, 'if [[ -n "$MAXIMUS_REGISTRY_URL" ]]; then', "action registry env usage");
-  assertContains(actionText, 'npm install --no-package-lock --prefix "$install_root" "$GITHUB_ACTION_PATH"', "action local package install");
+  assertContains(actionText, "Install published Maximus wrapper for this action ref", "action published package install step");
+  assertContains(actionText, "process.env.GITHUB_ACTION_PATH + '/package.json'", "action package version lookup");
+  assertContains(actionText, 'npm install --no-package-lock --prefix "$install_root" "@jeremyfellaz/maximus@$package_version"', "action published package install");
   assertContains(actionText, 'node "$GITHUB_ACTION_PATH/scripts/assert-installed-native-runtime.mjs" "$install_root"', "action native runtime assertion");
   assertContains(actionText, "MAXIMUS_COMMAND: ${{ inputs.command }}", "action command env wiring");
   assertContains(actionText, "MAXIMUS_TARGET_PATH: ${{ inputs.path }}", "action path env wiring");
@@ -99,6 +101,10 @@ function validateAction(actionText) {
   assert.ok(
     !actionText.includes('"${{ inputs.command }}" "${{ inputs.path }}"'),
     "action should not interpolate command or path inputs directly inside bash",
+  );
+  assert.ok(
+    !actionText.includes('npm install --no-package-lock --prefix "$install_root" "$GITHUB_ACTION_PATH"'),
+    "action should install the published package version instead of the local action path",
   );
 }
 
@@ -123,7 +129,7 @@ function validateDevWorkflow(devText) {
 
   assertContains(devText, "release-wiring:", "release wiring job");
   assertContains(devText, "node ./scripts/validate-rust-release-wiring.mjs", "release wiring validation command");
-  assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-plan.test.js test/release-candidate-metadata.test.js test/release-helpers.test.js test/npm-error-classifiers.test.js test/bump-release-version.test.js", "release wiring node test command");
+  assertContains(devText, "node --test test/release-workflow-context.test.js test/github-action-wiring.test.js test/release-docs.test.js test/release-plan.test.js test/release-candidate-metadata.test.js test/release-helpers.test.js test/npm-error-classifiers.test.js test/bump-release-version.test.js", "release wiring node test command");
 }
 
 function validateMarketplaceWrapperAction(actionText) {
@@ -131,9 +137,15 @@ function validateMarketplaceWrapperAction(actionText) {
   assertContains(actionText, "registry-url", "marketplace wrapper registry input");
   assertContains(actionText, "Resolve repository root", "marketplace wrapper repo root step");
   assertContains(actionText, 'repo_root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"', "marketplace wrapper repo root resolution");
-  assertContains(actionText, 'npm install --no-package-lock --prefix "$install_root" "$REPO_ROOT"', "marketplace wrapper root install");
+  assertContains(actionText, "Install published Maximus wrapper for this action ref", "marketplace wrapper published package install step");
+  assertContains(actionText, "process.env.REPO_ROOT + '/package.json'", "marketplace wrapper package version lookup");
+  assertContains(actionText, 'npm install --no-package-lock --prefix "$install_root" "@jeremyfellaz/maximus@$package_version"', "marketplace wrapper published package install");
   assertContains(actionText, 'node "$REPO_ROOT/scripts/assert-installed-native-runtime.mjs" "$install_root"', "marketplace wrapper runtime assertion");
   assertContains(actionText, 'node "$install_root/node_modules/@jeremyfellaz/maximus/bin/maximus.js"', "marketplace wrapper runtime invocation");
+  assert.ok(
+    !actionText.includes('npm install --no-package-lock --prefix "$install_root" "$REPO_ROOT"'),
+    "marketplace wrapper should install the published package version instead of the local repository path",
+  );
 }
 
 function validateActionSmokeWorkflow(actionSmokeText) {

@@ -3,20 +3,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const packageJsonPath = path.join(repoRoot, "package.json");
 const readmePaths = [
   path.join(repoRoot, "README.md"),
   path.join(repoRoot, "README.en.md"),
 ];
 const markerStart = "<!-- release-docs:start -->";
 const markerEnd = "<!-- release-docs:end -->";
+const exampleReleaseTag = "v0.1.0";
 
 const isCheckMode = process.argv.includes("--check");
 
 async function main() {
-  const packageManifest = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  const releaseTag = `v${packageManifest.version}`;
-
   const readmes = new Map(
     await Promise.all(
       readmePaths.map(async (readmePath) => [readmePath, await readFile(readmePath, "utf8")]),
@@ -25,7 +22,7 @@ async function main() {
 
   const nextReadmes = new Map();
   for (const [readmePath, currentText] of readmes) {
-    nextReadmes.set(readmePath, updateReleaseDocs(readmePath, currentText, releaseTag));
+    nextReadmes.set(readmePath, updateReleaseDocs(readmePath, currentText));
   }
 
   let changed = false;
@@ -46,18 +43,18 @@ async function main() {
       return;
     }
 
-    console.log(`Release docs are up to date for ${releaseTag}.`);
+    console.log("Release docs are up to date.");
     return;
   }
 
   if (changed) {
-    console.log(`Updated release docs for ${releaseTag}.`);
+    console.log("Updated release docs.");
   } else {
-    console.log(`Release docs are already up to date for ${releaseTag}.`);
+    console.log("Release docs are already up to date.");
   }
 }
 
-function updateReleaseDocs(readmePath, text, releaseTag) {
+export function updateReleaseDocs(readmePath, text) {
   const sections = {
     "README.md": [
       `${markerStart}`,
@@ -75,7 +72,7 @@ function updateReleaseDocs(readmePath, text, releaseTag) {
       "- `command`: `audit`, `doctor`, `fix`",
       "- `path`: 검사할 프로젝트 경로, 기본값 `.`",
       "- `registry-url`: pre-release smoke나 사설 registry 검증이 필요할 때만 쓰는 optional npm registry override",
-      `- \`release-tag\`: publish된 릴리즈 태그를 넣으세요. 예: \`${releaseTag}\``,
+      `- \`release-tag\`: publish된 릴리즈 태그를 넣으세요. 예: \`${exampleReleaseTag}\``,
       "",
       "유지보수자가 실제 alpha/stable 릴리즈를 준비하거나 같은 태그를 안전하게 재실행할 때는 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)을 기준으로 진행합니다. Release Drafter는 `master`에서 draft notes만 갱신하며, 실제 publish는 tag-driven release workflow만 담당합니다.",
       `${markerEnd}`,
@@ -96,7 +93,7 @@ function updateReleaseDocs(readmePath, text, releaseTag) {
       "- `command`: `audit`, `doctor`, `fix`",
       "- `path`: project path to inspect, default `.`",
       "- `registry-url`: optional npm registry override for pre-release smoke or private registry validation",
-      `- \`release-tag\`: replace this with a published release tag, for example \`${releaseTag}\``,
+      `- \`release-tag\`: replace this with a published release tag, for example \`${exampleReleaseTag}\``,
       "",
       "Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication stays in the tag-driven release workflow.",
       `${markerEnd}`,
@@ -121,8 +118,13 @@ function updateReleaseDocs(readmePath, text, releaseTag) {
   return `${before}\n\n${nextSection}${after ? `\n\n${after}` : ""}`.replace(/\n{3,}/g, "\n\n");
 }
 
-await main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Release docs update failed: ${message}`);
-  process.exitCode = 1;
-});
+const isDirectExecution =
+  process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+
+if (isDirectExecution) {
+  await main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Release docs update failed: ${message}`);
+    process.exitCode = 1;
+  });
+}

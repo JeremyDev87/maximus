@@ -34,7 +34,7 @@ runs:
         repo_root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
         echo "repo_root=$repo_root" >> "$GITHUB_OUTPUT"
 
-    - name: Install Maximus wrapper from repository root
+    - name: Install published Maximus wrapper for this action ref
       shell: bash
       env:
         MAXIMUS_REGISTRY_URL: ${{ inputs.registry-url }}
@@ -53,7 +53,8 @@ runs:
           export npm_config_registry="$MAXIMUS_REGISTRY_URL"
         fi
 
-        npm install --no-package-lock --prefix "$install_root" "$REPO_ROOT"
+        package_version="$(node -p "require(process.env.REPO_ROOT + '/package.json').version")"
+        npm install --no-package-lock --prefix "$install_root" "@jeremyfellaz/maximus@$package_version"
 
     - name: Assert native runtime is installed
       shell: bash
