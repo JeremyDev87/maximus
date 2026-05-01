@@ -134,7 +134,13 @@ pub fn run_tsconfig_check(project: &ProjectSnapshot) -> io::Result<CheckOutcome>
 
         collect_deprecated_option_findings(&mut findings, &file.path, compiler_options);
         collect_project_reference_findings(&mut findings, &file.path, &file.dir, references)?;
-        collect_include_exclude_pattern_findings(&mut findings, &file.path, &file.dir, &config)?;
+        collect_include_exclude_pattern_findings(
+            &mut findings,
+            project,
+            &file.path,
+            &file.dir,
+            &config,
+        )?;
         collect_output_path_overlap_findings(
             &mut findings,
             &project.root_dir,
@@ -1038,12 +1044,14 @@ fn parse_type_roots_option(
 
 fn collect_include_exclude_pattern_findings(
     findings: &mut Vec<Finding>,
+    project: &ProjectSnapshot,
     file_path: &Path,
     config_dir: &Path,
     config: &Value,
 ) -> io::Result<()> {
     let base_dir = normalize_path(config_dir);
     let effective_pattern_config = resolve_effective_pattern_config(file_path, config)?;
+    let has_next_dependency = nearest_package_has_next_dependency(project, config_dir)?;
 
     for issue in &effective_pattern_config.issues {
         findings.push(make_finding(FindingInput {
@@ -1107,6 +1115,19 @@ fn collect_include_exclude_pattern_findings(
                 &default_excluded_dirs,
             )?;
             if matches.is_empty() {
+                let is_next_generated_types_pattern =
+                    has_next_dependency && is_next_generated_types_pattern(pattern);
+                let (severity, hint) = if is_next_generated_types_pattern {
+                    (
+                        Severity::Info,
+                        "Next.js generates .next/types during development or build, so this include can be empty before .next exists.",
+                    )
+                } else {
+                    (
+                        Severity::Warn,
+                        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+                    )
+                };
                 findings.push(make_finding(FindingInput {
                     id: format!(
                         "tsconfig-patterns:{}:include:{pattern}",
@@ -1121,11 +1142,8 @@ fn collect_include_exclude_pattern_findings(
                     file: Some(file_path.to_path_buf()),
                     fix_ids: Vec::new(),
                     fixable: false,
-                    hint: Some(
-                        "Fix or remove empty include patterns before TypeScript silently skips expected inputs."
-                            .to_string(),
-                    ),
-                    severity: Some(Severity::Warn),
+                    hint: Some(hint.to_string()),
+                    severity: Some(severity),
                 }));
                 continue;
             }
@@ -1191,6 +1209,41 @@ fn collect_include_exclude_pattern_findings(
     }
 
     Ok(())
+}
+
+fn nearest_package_has_next_dependency(
+    project: &ProjectSnapshot,
+    config_dir: &Path,
+) -> io::Result<bool> {
+    let Some(package_file) = find_nearest_package_file(project, config_dir) else {
+        return Ok(false);
+    };
+    let Some(package_text) = read_text_if_exists(&package_file.path)? else {
+        return Ok(false);
+    };
+    let Ok(package_json) =
+        parse_jsonc::<Value>(&package_text, &package_file.path.to_string_lossy())
+    else {
+        return Ok(false);
+    };
+
+    Ok(
+        package_has_dependency(&package_json, "dependencies", "next")
+            || package_has_dependency(&package_json, "devDependencies", "next")
+            || package_has_dependency(&package_json, "peerDependencies", "next")
+            || package_has_dependency(&package_json, "optionalDependencies", "next"),
+    )
+}
+
+fn package_has_dependency(package_json: &Value, field_name: &str, dependency_name: &str) -> bool {
+    package_json
+        .get(field_name)
+        .and_then(Value::as_object)
+        .is_some_and(|dependencies| dependencies.contains_key(dependency_name))
+}
+
+fn is_next_generated_types_pattern(pattern: &str) -> bool {
+    pattern == ".next/types/**/*.ts" || pattern == "./.next/types/**/*.ts"
 }
 
 fn collect_output_path_overlap_findings(

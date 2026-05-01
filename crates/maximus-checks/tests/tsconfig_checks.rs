@@ -867,7 +867,9 @@ fn tsconfig_pattern_severity_contract_keeps_noop_excludes_non_blocking() {
     );
 
     write(
-        fixture.path().join("noop-node-modules-exclude/tsconfig.json"),
+        fixture
+            .path()
+            .join("noop-node-modules-exclude/tsconfig.json"),
         r#"
         {
           "include": ["src/**/*.ts"],
@@ -942,6 +944,91 @@ fn tsconfig_pattern_severity_contract_keeps_noop_excludes_non_blocking() {
         &StructureReport {
             is_monorepo: false,
             package_count: 0,
+            env_directories: 0,
+            config_files: 1,
+            recommendations: Vec::new(),
+        },
+    );
+
+    assert_eq!(summary.status, "clean");
+    assert_eq!(summary.blocking_findings, 0);
+    assert_eq!(summary.warning_findings, 0);
+    assert_eq!(summary.info_findings, 1);
+}
+
+#[test]
+fn tsconfig_check_downgrades_missing_next_generated_types_include_for_next_packages() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    let next_hint = "Next.js generates .next/types during development or build, so this include can be empty before .next exists.";
+    let generic_hint =
+        "Fix or remove empty include patterns before TypeScript silently skips expected inputs.";
+
+    write(
+        fixture.path().join("next-app/package.json"),
+        r#"{ "devDependencies": { "next": "15.0.0" } }"#,
+    );
+    write(
+        fixture.path().join("next-app/tsconfig.json"),
+        r#"{ "include": ["./.next/types/**/*.ts"] }"#,
+    );
+
+    write(
+        fixture.path().join("plain-app/package.json"),
+        r#"{ "devDependencies": { "react": "19.0.0" } }"#,
+    );
+    write(
+        fixture.path().join("plain-app/tsconfig.json"),
+        r#"{ "include": [".next/types/**/*.ts"] }"#,
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_tsconfig_check(&project).expect("check should run");
+    let next_tsconfig = fixture.path().join("next-app/tsconfig.json");
+    let plain_tsconfig = fixture.path().join("plain-app/tsconfig.json");
+
+    let next_id = format!(
+        "tsconfig-patterns:{}:include:./.next/types/**/*.ts",
+        next_tsconfig.to_string_lossy()
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &next_id,
+        Severity::Info,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \"./.next/types/**/*.ts\" matched 0 files under base dir {}.",
+            fixture.path().join("next-app").to_string_lossy()
+        ),
+        next_hint,
+        Some(next_tsconfig.clone()),
+    );
+    assert_has_finding(
+        &outcome.findings,
+        &format!(
+            "tsconfig-patterns:{}:include:.next/types/**/*.ts",
+            plain_tsconfig.to_string_lossy()
+        ),
+        Severity::Warn,
+        "Include pattern does not match any files",
+        &format!(
+            "include pattern \".next/types/**/*.ts\" matched 0 files under base dir {}.",
+            fixture.path().join("plain-app").to_string_lossy()
+        ),
+        generic_hint,
+        Some(plain_tsconfig),
+    );
+
+    let next_finding = outcome
+        .findings
+        .iter()
+        .find(|finding| finding.id == next_id)
+        .expect("Next generated types finding should exist");
+    let summary = summarize_findings(
+        std::slice::from_ref(next_finding),
+        &outcome.fixes,
+        &StructureReport {
+            is_monorepo: false,
+            package_count: 1,
             env_directories: 0,
             config_files: 1,
             recommendations: Vec::new(),
