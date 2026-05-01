@@ -488,6 +488,66 @@ test("CLI audit inherits top-level pattern fields and reports invalid pattern en
   assert.ok(invalidFilesMissing.stdout.includes("declares files[0] as src/missing.ts"));
 });
 
+test("CLI audit treats missing Next generated types include as info-only", async (t) => {
+  if (!(await shouldRunRustCliAssertions(t))) {
+    return;
+  }
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "maximus-tsconfig-next-types-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await mkdir(path.join(rootDir, "next-app"), { recursive: true });
+  await writeFile(
+    path.join(rootDir, "next-app", "package.json"),
+    JSON.stringify({ dependencies: { next: "15.0.0" } }, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "next-app", "tsconfig.json"),
+    JSON.stringify({ include: [".next/types/**/*.ts"] }, null, 2),
+    "utf8",
+  );
+
+  await mkdir(path.join(rootDir, "plain-app"), { recursive: true });
+  await writeFile(
+    path.join(rootDir, "plain-app", "package.json"),
+    JSON.stringify({ dependencies: { react: "19.0.0" } }, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(rootDir, "plain-app", "tsconfig.json"),
+    JSON.stringify({ include: [".next/types/**/*.ts"] }, null, 2),
+    "utf8",
+  );
+
+  const nextResult = runAudit(path.join(rootDir, "next-app"));
+  assert.equal(nextResult.status, 0, nextResult.stderr);
+  assert.ok(nextResult.stdout.includes("Include pattern does not match any files"));
+  assert.ok(nextResult.stdout.includes('include pattern ".next/types/**/*.ts" matched 0 files'));
+  assert.ok(
+    nextResult.stdout.includes("Next.js generates .next/types during development or build"),
+  );
+  assert.ok(
+    !nextResult.stdout.includes(
+      "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+    ),
+  );
+
+  const plainResult = runAudit(path.join(rootDir, "plain-app"));
+  assert.equal(plainResult.status, 1, plainResult.stderr);
+  assert.ok(plainResult.stdout.includes("Include pattern does not match any files"));
+  assert.ok(
+    plainResult.stdout.includes(
+      "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+    ),
+  );
+  assert.ok(
+    !plainResult.stdout.includes("Next.js generates .next/types during development or build"),
+  );
+});
+
 function runAudit(target) {
   return spawnSync(process.execPath, ["./bin/maximus.js", "audit", target], {
     cwd: repoRoot,
