@@ -122,7 +122,7 @@ fn fix_output_file_write_error_fails_before_applying_mutations() {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("Maximus failed:"),
+        String::from_utf8_lossy(&output.stderr).contains("Maximus 실패:"),
         "{output:?}"
     );
     assert!(

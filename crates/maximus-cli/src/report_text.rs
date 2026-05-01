@@ -2,15 +2,17 @@
 
 use std::path::Path;
 
-use maximus_core::{AppliedFix, AuditResult, FixPlan, StructureReport};
+use maximus_core::{AppliedFix, AuditResult, FixPlan};
+
+use crate::report_ko as ko;
 
 pub fn format_help() -> String {
     [
         "Maximus",
         "",
-        "Bring order to chaotic configs.",
+        "혼란스러운 설정을 정리합니다.",
         "",
-        "Usage",
+        "사용법",
         "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
         "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
         "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json] [--output <path>]",
@@ -23,40 +25,43 @@ pub fn format_audit_report(result: &AuditResult) -> String {
     let mut lines = Vec::new();
 
     lines.push("Maximus audit".to_string());
-    lines.push(format!("Target: {}", display_path(&result.root_dir)));
+    lines.push(format!("대상: {}", display_path(&result.root_dir)));
     lines.push(String::new());
-    lines.push(format!("Status: {}", result.summary.status));
     lines.push(format!(
-        "Findings: {} error, {} warnings, {} info",
+        "상태: {}",
+        ko::status_label(&result.summary.status)
+    ));
+    lines.push(format!(
+        "발견 항목: 오류 {}개, 경고 {}개, 정보 {}개",
         result.summary.blocking_findings,
         result.summary.warning_findings,
         result.summary.info_findings
     ));
     push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.push(format!(
-        "Fixes available: {}",
+        "적용 가능한 수정: {}개",
         result.summary.fixes_available
     ));
     lines.push(String::new());
     lines.push(format!(
-        "Structure: {}",
-        describe_structure(&result.structure)
+        "구조: {}",
+        ko::describe_structure(&result.structure)
     ));
 
     if result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("No config drift detected.".to_string());
+        lines.push("설정 차이가 감지되지 않았습니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("Findings".to_string());
+        lines.push("발견 항목".to_string());
         lines.extend(format_findings(result));
     }
 
     if !result.structure.recommendations.is_empty() {
         lines.push(String::new());
-        lines.push("Recommendations".to_string());
+        lines.push("권장 사항".to_string());
         for recommendation in &result.structure.recommendations {
-            lines.push(format!("- {recommendation}"));
+            lines.push(format!("- {}", ko::message(recommendation)));
         }
     }
 
@@ -77,51 +82,54 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
         .count();
 
     lines.push("Maximus doctor".to_string());
-    lines.push(format!("Target: {}", display_path(&result.root_dir)));
+    lines.push(format!("대상: {}", display_path(&result.root_dir)));
     lines.push(String::new());
-    lines.push(format!("Diagnosis: {}", result.summary.status));
+    lines.push(format!(
+        "진단: {}",
+        ko::status_label(&result.summary.status)
+    ));
     push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.push(format!(
-        "Project shape: {}",
-        describe_structure(&result.structure)
+        "프로젝트 구조: {}",
+        ko::describe_structure(&result.structure)
     ));
     lines.push(String::new());
-    lines.push("Prescription".to_string());
+    lines.push("처방".to_string());
 
     if fixable_findings > 0 {
         lines.push(format!(
-            "- Run \"maximus fix\" to apply {} safe fix(es).",
+            "- 안전한 수정 {}개를 적용하려면 \"maximus fix\"를 실행하세요.",
             result.summary.fixes_available
         ));
     } else {
-        lines.push("- No automatic fixes are currently available.".to_string());
+        lines.push("- 현재 적용 가능한 자동 수정이 없습니다.".to_string());
     }
 
     if manual_findings > 0 {
         lines.push(format!(
-            "- Review {manual_findings} manual issue(s) in priority order below."
+            "- 아래 우선순위에 따라 수동 확인 항목 {manual_findings}개를 검토하세요."
         ));
     } else {
-        lines.push("- No manual follow-up is required right now.".to_string());
+        lines.push("- 지금은 수동 후속 조치가 필요하지 않습니다.".to_string());
     }
 
     if result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("No config drift detected.".to_string());
+        lines.push("설정 차이가 감지되지 않았습니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("Top 3 priorities".to_string());
+        lines.push("상위 3개 우선순위".to_string());
         lines.extend(format_top_priorities(result));
         lines.push(String::new());
-        lines.push("Findings".to_string());
+        lines.push("발견 항목".to_string());
         lines.extend(format_findings(result));
     }
 
     if !result.structure.recommendations.is_empty() {
         lines.push(String::new());
-        lines.push("Recommended structure".to_string());
+        lines.push("권장 구조".to_string());
         for recommendation in &result.structure.recommendations {
-            lines.push(format!("- {recommendation}"));
+            lines.push(format!("- {}", ko::message(recommendation)));
         }
     }
 
@@ -138,21 +146,21 @@ fn format_top_priorities(result: &AuditResult) -> Vec<String> {
             let mut lines = vec![format!(
                 "{}. [{}] {}",
                 index + 1,
-                severity_label(&finding.severity),
-                finding.title
+                ko::severity_label(&finding.severity),
+                ko::message(&finding.title)
             )];
 
             if let Some(file) = &finding.file {
                 lines.push(format!(
-                    "   file: {}",
+                    "   파일: {}",
                     format_relative_file(&result.root_dir, file)
                 ));
             }
 
             if !finding.hint.is_empty() {
-                lines.push(format!("   next: {}", finding.hint));
+                lines.push(format!("   다음: {}", ko::message(&finding.hint)));
             } else if !finding.detail.is_empty() {
-                lines.push(format!("   next: {}", finding.detail));
+                lines.push(format!("   다음: {}", ko::message(&finding.detail)));
             }
 
             lines
@@ -175,56 +183,56 @@ pub fn format_fix_result(
     let selected_fixes = selected_fixes.unwrap_or(&[]);
 
     lines.push("Maximus fix".to_string());
-    lines.push(format!("Target: {}", display_path(target_dir)));
+    lines.push(format!("대상: {}", display_path(target_dir)));
     lines.push(String::new());
 
     if dry_run {
         if should_show_selected_fixes {
             lines.push(format!(
-                "Dry run: {} safe fix(es) selected.",
+                "Dry run: 안전한 수정 {}개가 선택되었습니다.",
                 selected_fixes.len()
             ));
         } else {
             lines.push(format!(
-                "Dry run: {} safe fix(es) available.",
+                "Dry run: 적용 가능한 안전한 수정 {}개가 있습니다.",
                 initial.summary.fixes_available
             ));
         }
     } else {
-        lines.push(format!("Applied: {} fix(es).", applied.len()));
+        lines.push(format!("적용됨: 수정 {}개.", applied.len()));
     }
 
     if !applied.is_empty() {
         lines.push(String::new());
-        lines.push("Changes".to_string());
+        lines.push("변경 사항".to_string());
         for fix in applied {
-            lines.push(format!("- {}", fix.title));
+            lines.push(format!("- {}", ko::fix_title(&fix.title)));
             for file in &fix.files {
-                lines.push(format!("  file: {}", display_path(file)));
+                lines.push(format!("  파일: {}", display_path(file)));
             }
         }
     }
 
     if dry_run && should_show_selected_fixes {
         lines.push(String::new());
-        lines.push("Planned changes".to_string());
+        lines.push("계획된 변경 사항".to_string());
         for fix in selected_fixes {
-            lines.push(format!("- {}", fix.title));
+            lines.push(format!("- {}", ko::fix_title(&fix.title)));
             for file in &fix.files {
-                lines.push(format!("  file: {}", display_path(file)));
+                lines.push(format!("  파일: {}", display_path(file)));
             }
         }
     }
 
     if let Some(preview_report) = preview_report.filter(|report| !report.is_empty()) {
         lines.push(String::new());
-        lines.push("Preview diffs".to_string());
+        lines.push("미리보기 diff".to_string());
         lines.extend(preview_report.lines().map(ToString::to_string));
     }
 
     lines.push(String::new());
     lines.push(format!(
-        "Post-check: {} error, {} warnings, {} info",
+        "사후 점검: 오류 {}개, 경고 {}개, 정보 {}개",
         result.summary.blocking_findings,
         result.summary.warning_findings,
         result.summary.info_findings
@@ -233,10 +241,10 @@ pub fn format_fix_result(
 
     if result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("Project is currently clean.".to_string());
+        lines.push("현재 프로젝트는 정상입니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("Remaining findings".to_string());
+        lines.push("남은 발견 항목".to_string());
         lines.extend(format_findings(result));
     }
 
@@ -249,23 +257,23 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
     for finding in &result.findings {
         lines.push(format!(
             "- [{}] {}",
-            severity_label(&finding.severity),
-            finding.title
+            ko::severity_label(&finding.severity),
+            ko::message(&finding.title)
         ));
 
         if let Some(file) = &finding.file {
             lines.push(format!(
-                "  file: {}",
+                "  파일: {}",
                 format_relative_file(&result.root_dir, file)
             ));
         }
 
         if !finding.detail.is_empty() {
-            lines.push(format!("  detail: {}", finding.detail));
+            lines.push(format!("  상세: {}", ko::message(&finding.detail)));
         }
 
         if !finding.hint.is_empty() {
-            lines.push(format!("  hint: {}", finding.hint));
+            lines.push(format!("  힌트: {}", ko::message(&finding.hint)));
         }
     }
 
@@ -274,7 +282,7 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
 
 fn push_suppression_summary(lines: &mut Vec<String>, suppressed_by_config: usize) {
     if suppressed_by_config > 0 {
-        lines.push(format!("Suppressed by config: {suppressed_by_config}"));
+        lines.push(format!("설정으로 숨김: {suppressed_by_config}개"));
     }
 }
 
@@ -288,27 +296,6 @@ fn format_relative_file(root_dir: &Path, file_path: &Path) -> String {
             }
         })
         .unwrap_or_else(|| display_path(file_path))
-}
-
-fn describe_structure(structure: &StructureReport) -> String {
-    let repo_type = if structure.is_monorepo {
-        "monorepo"
-    } else {
-        "single package"
-    };
-
-    format!(
-        "{repo_type}, {} package(s), {} config file(s), {} env folder(s)",
-        structure.package_count, structure.config_files, structure.env_directories
-    )
-}
-
-fn severity_label(severity: &maximus_core::Severity) -> &'static str {
-    match severity {
-        maximus_core::Severity::Error => "error",
-        maximus_core::Severity::Warn => "warn",
-        maximus_core::Severity::Info => "info",
-    }
 }
 
 fn display_path(path: &Path) -> String {
@@ -376,9 +363,9 @@ mod tests {
             [
                 "Maximus",
                 "",
-                "Bring order to chaotic configs.",
+                "혼란스러운 설정을 정리합니다.",
                 "",
-                "Usage",
+                "사용법",
                 "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
                 "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
                 "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json] [--output <path>]",
@@ -397,18 +384,18 @@ mod tests {
             format_audit_report(&result),
             [
                 "Maximus audit",
-                "Target: /tmp/project",
+                "대상: /tmp/project",
                 "",
-                "Status: clean",
-                "Findings: 0 error, 0 warnings, 0 info",
-                "Fixes available: 0",
+                "상태: 정상",
+                "발견 항목: 오류 0개, 경고 0개, 정보 0개",
+                "적용 가능한 수정: 0개",
                 "",
-                "Structure: single package, 1 package(s), 1 config file(s), 0 env folder(s)",
+                "구조: 단일 패키지, 패키지 1개, 설정 파일 1개, env 폴더 0개",
                 "",
-                "No config drift detected.",
+                "설정 차이가 감지되지 않았습니다.",
                 "",
-                "Recommendations",
-                "- Current config surface looks healthy. Keep shared rules centralized as the repo grows.",
+                "권장 사항",
+                "- 현재 설정 표면은 정상입니다. repo가 커져도 shared rule을 중앙에 유지하세요.",
             ]
             .join("\n")
         );
@@ -417,19 +404,19 @@ mod tests {
             format_doctor_report(&result),
             [
                 "Maximus doctor",
-                "Target: /tmp/project",
+                "대상: /tmp/project",
                 "",
-                "Diagnosis: clean",
-                "Project shape: single package, 1 package(s), 1 config file(s), 0 env folder(s)",
+                "진단: 정상",
+                "프로젝트 구조: 단일 패키지, 패키지 1개, 설정 파일 1개, env 폴더 0개",
                 "",
-                "Prescription",
-                "- No automatic fixes are currently available.",
-                "- No manual follow-up is required right now.",
+                "처방",
+                "- 현재 적용 가능한 자동 수정이 없습니다.",
+                "- 지금은 수동 후속 조치가 필요하지 않습니다.",
                 "",
-                "No config drift detected.",
+                "설정 차이가 감지되지 않았습니다.",
                 "",
-                "Recommended structure",
-                "- Current config surface looks healthy. Keep shared rules centralized as the repo grows.",
+                "권장 구조",
+                "- 현재 설정 표면은 정상입니다. repo가 커져도 shared rule을 중앙에 유지하세요.",
             ]
             .join("\n")
         );
@@ -446,13 +433,13 @@ mod tests {
             ),
             [
                 "Maximus fix",
-                "Target: /tmp/project",
+                "대상: /tmp/project",
                 "",
-                "Dry run: 0 safe fix(es) available.",
+                "Dry run: 적용 가능한 안전한 수정 0개가 있습니다.",
                 "",
-                "Post-check: 0 error, 0 warnings, 0 info",
+                "사후 점검: 오류 0개, 경고 0개, 정보 0개",
                 "",
-                "Project is currently clean.",
+                "현재 프로젝트는 정상입니다.",
             ]
             .join("\n")
         );
@@ -551,22 +538,22 @@ mod tests {
 
         assert!(report.contains(
             [
-                "Top 3 priorities",
-                "1. [error] First error",
-                "   file: tsconfig.json",
-                "   next: fix the first issue",
-                "2. [warn] Second warning",
-                "   file: .env",
-                "   next: run maximus fix",
-                "3. [info] Third note",
-                "   file: packages/app/tsconfig.json",
-                "   next: third detail",
+                "상위 3개 우선순위",
+                "1. [오류] First error",
+                "   파일: tsconfig.json",
+                "   다음: fix the first issue",
+                "2. [경고] Second warning",
+                "   파일: .env",
+                "   다음: run maximus fix",
+                "3. [정보] Third note",
+                "   파일: packages/app/tsconfig.json",
+                "   다음: third detail",
             ]
             .join("\n")
             .as_str()
         ));
-        assert!(report.contains("- [info] Fourth note"));
-        assert!(!report.contains("4. [info] Fourth note"));
+        assert!(report.contains("- [정보] Fourth note"));
+        assert!(!report.contains("4. [정보] Fourth note"));
     }
 
     #[cfg(windows)]

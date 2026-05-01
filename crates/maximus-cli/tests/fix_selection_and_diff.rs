@@ -35,8 +35,8 @@ fn fix_id_applies_only_the_selected_fix() {
     assert!(!root.join("packages/app/.env.example").exists());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    assert!(stdout.contains("Applied: 1 fix(es)."));
-    assert!(stdout.contains("Create .env.example"));
+    assert!(stdout.contains("적용됨: 수정 1개."));
+    assert!(stdout.contains(".env.example 생성"));
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn fix_command_errors_when_selector_matches_nothing() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: No matching fixes for the requested selector.\n"
+        "Maximus 실패: 요청한 selector와 일치하는 수정 항목이 없습니다.\n"
     );
 }
 
@@ -122,7 +122,7 @@ fn fix_id_requires_a_real_value_instead_of_another_flag() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Option \"--fix-id\" requires a value.\n"
+        "Maximus 실패: \"--fix-id\" 옵션에는 값이 필요합니다.\n"
     );
 }
 
@@ -146,7 +146,7 @@ fn fix_prefix_requires_a_real_value_instead_of_another_flag() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Option \"--fix-prefix\" requires a value.\n"
+        "Maximus 실패: \"--fix-prefix\" 옵션에는 값이 필요합니다.\n"
     );
 }
 
@@ -165,7 +165,7 @@ fn diff_requires_dry_run() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Option \"--diff\" requires \"fix --dry-run\".\n"
+        "Maximus 실패: \"--diff\" 옵션은 \"fix --dry-run\"이 필요합니다.\n"
     );
 }
 
@@ -179,7 +179,7 @@ fn fix_only_flags_are_rejected_without_fix_command() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+        "Maximus 실패: \"--diff\", \"--env-source-comments\", \"--fix-id\", \"--fix-prefix\" 옵션은 \"fix\"에서만 사용할 수 있습니다.\n"
     );
 }
 
@@ -194,7 +194,7 @@ fn fix_only_flags_are_rejected_for_help_command() {
     assert!(output.stderr.is_empty());
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
-        .contains("Usage\n  maximus audit [path]"));
+        .contains("사용법\n  maximus audit [path]"));
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn fix_only_flags_are_rejected_for_fix_help_command() {
     assert!(output.stderr.is_empty());
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
-        .contains("Usage\n  maximus audit [path]"));
+        .contains("사용법\n  maximus audit [path]"));
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn fix_only_flags_are_rejected_when_help_flag_precedes_fix_command() {
     assert!(output.stderr.is_empty());
     assert!(String::from_utf8(output.stdout)
         .expect("stdout should be utf8")
-        .contains("Usage\n  maximus audit [path]"));
+        .contains("사용법\n  maximus audit [path]"));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn audit_rejects_fix_only_flags() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".\n"
+        "Maximus 실패: \"--diff\", \"--env-source-comments\", \"--fix-id\", \"--fix-prefix\" 옵션은 \"fix\"에서만 사용할 수 있습니다.\n"
     );
 }
 
@@ -273,7 +273,7 @@ fn diff_preview_shows_create_diff_without_writing_files() {
     assert!(!root.join(".env.example").exists());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    assert!(stdout.contains("Preview diffs"));
+    assert!(stdout.contains("미리보기 diff"));
     assert!(stdout.contains("--- /dev/null"));
     assert!(stdout.contains("+++ .env.example"));
     assert!(stdout.contains("+API_URL="));
@@ -412,7 +412,8 @@ fn diff_preview_treats_existing_empty_env_example_as_update() {
     );
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    assert!(stdout.contains("Append missing keys to .env.example"));
+    assert!(stdout.contains(".env.example에 누락된 키 추가"));
+    assert!(!stdout.contains("Append missing keys to .env.example"));
     assert!(stdout.contains("--- .env.example"));
     assert!(stdout.contains("+++ .env.example"));
     assert!(stdout.contains("@@ -0,0 +1,1 @@"));

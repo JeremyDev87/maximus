@@ -48,16 +48,16 @@ pub enum ArgsError {
 impl Display for ArgsError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EmptyValue(flag) => write!(f, "Option \"{flag}\" requires a non-empty value."),
+            Self::EmptyValue(flag) => write!(f, "\"{flag}\" 옵션에는 비어 있지 않은 값이 필요합니다."),
             Self::ConflictingValue(left, right) => write!(
                 f,
-                "Option \"{left}\" cannot be combined with option \"{right}\"."
+                "\"{left}\" 옵션은 \"{right}\" 옵션과 함께 사용할 수 없습니다."
             ),
             Self::InvalidValue(flag, value, expected) => write!(
                 f,
-                "Option \"{flag}\" received unsupported value \"{value}\". Use one of: {expected}."
+                "\"{flag}\" 옵션에 지원하지 않는 값 \"{value}\"가 전달되었습니다. 사용 가능한 값: {expected}."
             ),
-            Self::MissingValue(flag) => write!(f, "Option \"{flag}\" requires a value."),
+            Self::MissingValue(flag) => write!(f, "\"{flag}\" 옵션에는 값이 필요합니다."),
         }
     }
 }

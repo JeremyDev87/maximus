@@ -2,16 +2,18 @@
 
 use std::path::Path;
 
-use maximus_core::{AppliedFix, AuditResult, FixPlan, Severity, StructureReport};
+use maximus_core::{AppliedFix, AuditResult, FixPlan};
+
+use crate::report_ko as ko;
 
 pub fn format_audit_report(result: &AuditResult) -> String {
     let mut lines = vec![
         "# Maximus audit".to_string(),
         String::new(),
-        format!("- Target: `{}`", display_path(&result.root_dir)),
-        format!("- Status: `{}`", result.summary.status),
+        format!("- 대상: `{}`", display_path(&result.root_dir)),
+        format!("- 상태: `{}`", ko::status_label(&result.summary.status)),
         format!(
-            "- Findings: `{}` error, `{}` warnings, `{}` info",
+            "- 발견 항목: 오류 `{}`개, 경고 `{}`개, 정보 `{}`개",
             result.summary.blocking_findings,
             result.summary.warning_findings,
             result.summary.info_findings
@@ -19,27 +21,27 @@ pub fn format_audit_report(result: &AuditResult) -> String {
     ];
     push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.extend([
-        format!("- Fixes available: `{}`", result.summary.fixes_available),
+        format!("- 적용 가능한 수정: `{}`개", result.summary.fixes_available),
         String::new(),
-        "## Structure".to_string(),
-        format!("{}.", describe_structure(&result.structure)),
+        "## 구조".to_string(),
+        format!("{}.", ko::describe_structure(&result.structure)),
     ]);
 
     if result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("## Findings".to_string());
-        lines.push("- No config drift detected.".to_string());
+        lines.push("## 발견 항목".to_string());
+        lines.push("- 설정 차이가 감지되지 않았습니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("## Findings".to_string());
+        lines.push("## 발견 항목".to_string());
         lines.extend(format_findings(result));
     }
 
     if !result.structure.recommendations.is_empty() {
         lines.push(String::new());
-        lines.push("## Recommendations".to_string());
+        lines.push("## 권장 사항".to_string());
         for recommendation in &result.structure.recommendations {
-            lines.push(format!("- {recommendation}"));
+            lines.push(format!("- {}", ko::message(recommendation)));
         }
     }
 
@@ -50,14 +52,17 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
     let mut lines = vec![
         "# Maximus doctor".to_string(),
         String::new(),
-        format!("- Target: `{}`", display_path(&result.root_dir)),
-        format!("- Diagnosis: `{}`", result.summary.status),
+        format!("- 대상: `{}`", display_path(&result.root_dir)),
+        format!("- 진단: `{}`", ko::status_label(&result.summary.status)),
     ];
     push_suppression_summary(&mut lines, result.summary.suppressed_by_config);
     lines.extend([
-        format!("- Project shape: {}", describe_structure(&result.structure)),
+        format!(
+            "- 프로젝트 구조: {}",
+            ko::describe_structure(&result.structure)
+        ),
         String::new(),
-        "## Prescription".to_string(),
+        "## 처방".to_string(),
     ]);
 
     let manual_findings = result
@@ -73,39 +78,39 @@ pub fn format_doctor_report(result: &AuditResult) -> String {
 
     if fixable_findings > 0 {
         lines.push(format!(
-            "- Run `maximus fix` to apply {} safe fix(es).",
+            "- 안전한 수정 {}개를 적용하려면 `maximus fix`를 실행하세요.",
             result.summary.fixes_available
         ));
     } else {
-        lines.push("- No automatic fixes are currently available.".to_string());
+        lines.push("- 현재 적용 가능한 자동 수정이 없습니다.".to_string());
     }
 
     if manual_findings > 0 {
         lines.push(format!(
-            "- Review {manual_findings} manual issue(s) in priority order below."
+            "- 아래 우선순위에 따라 수동 확인 항목 {manual_findings}개를 검토하세요."
         ));
     } else {
-        lines.push("- No manual follow-up is required right now.".to_string());
+        lines.push("- 지금은 수동 후속 조치가 필요하지 않습니다.".to_string());
     }
 
     if result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("## Findings".to_string());
-        lines.push("- No config drift detected.".to_string());
+        lines.push("## 발견 항목".to_string());
+        lines.push("- 설정 차이가 감지되지 않았습니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("## Top Priorities".to_string());
+        lines.push("## 상위 우선순위".to_string());
         lines.extend(format_top_priorities(result));
         lines.push(String::new());
-        lines.push("## Findings".to_string());
+        lines.push("## 발견 항목".to_string());
         lines.extend(format_findings(result));
     }
 
     if !result.structure.recommendations.is_empty() {
         lines.push(String::new());
-        lines.push("## Recommended Structure".to_string());
+        lines.push("## 권장 구조".to_string());
         for recommendation in &result.structure.recommendations {
-            lines.push(format!("- {recommendation}"));
+            lines.push(format!("- {}", ko::message(recommendation)));
         }
     }
 
@@ -124,32 +129,32 @@ pub fn format_fix_result(
     let mut lines = vec![
         "# Maximus fix".to_string(),
         String::new(),
-        format!("- Target: `{}`", display_path(target_dir)),
+        format!("- 대상: `{}`", display_path(target_dir)),
     ];
 
     if dry_run {
         if let Some(selected_fixes) = selected_fixes.filter(|fixes| !fixes.is_empty()) {
             lines.push(format!(
-                "- Dry run: `{}` safe fix(es) selected.",
+                "- Dry run: 안전한 수정 `{}`개가 선택되었습니다.",
                 selected_fixes.len()
             ));
         } else {
             lines.push(format!(
-                "- Dry run: `{}` safe fix(es) available.",
+                "- Dry run: 적용 가능한 안전한 수정 `{}`개가 있습니다.",
                 initial.summary.fixes_available
             ));
         }
     } else {
-        lines.push(format!("- Applied: `{}` fix(es).", applied.len()));
+        lines.push(format!("- 적용됨: 수정 `{}`개.", applied.len()));
     }
 
     if !applied.is_empty() {
         lines.push(String::new());
-        lines.push("## Changes".to_string());
+        lines.push("## 변경 사항".to_string());
         for fix in applied {
-            lines.push(format!("- {}", fix.title));
+            lines.push(format!("- {}", ko::fix_title(&fix.title)));
             for file in &fix.files {
-                lines.push(format!("  - file: `{}`", display_path(file)));
+                lines.push(format!("  - 파일: `{}`", display_path(file)));
             }
         }
     }
@@ -157,11 +162,11 @@ pub fn format_fix_result(
     if dry_run {
         if let Some(selected_fixes) = selected_fixes.filter(|fixes| !fixes.is_empty()) {
             lines.push(String::new());
-            lines.push("## Planned Changes".to_string());
+            lines.push("## 계획된 변경 사항".to_string());
             for fix in selected_fixes {
-                lines.push(format!("- {}", fix.title));
+                lines.push(format!("- {}", ko::fix_title(&fix.title)));
                 for file in &fix.files {
-                    lines.push(format!("  - file: `{}`", display_path(file)));
+                    lines.push(format!("  - 파일: `{}`", display_path(file)));
                 }
             }
         }
@@ -169,7 +174,7 @@ pub fn format_fix_result(
 
     if let Some(preview_report) = preview_report.filter(|report| !report.is_empty()) {
         lines.push(String::new());
-        lines.push("## Preview Diffs".to_string());
+        lines.push("## 미리보기 diff".to_string());
         lines.push("```diff".to_string());
         lines.extend(preview_report.lines().map(ToOwned::to_owned));
         lines.push("```".to_string());
@@ -177,7 +182,7 @@ pub fn format_fix_result(
 
     lines.push(String::new());
     lines.push(format!(
-        "- Post-check: `{}` error, `{}` warnings, `{}` info",
+        "- 사후 점검: 오류 `{}`개, 경고 `{}`개, 정보 `{}`개",
         final_result.summary.blocking_findings,
         final_result.summary.warning_findings,
         final_result.summary.info_findings
@@ -186,11 +191,11 @@ pub fn format_fix_result(
 
     if final_result.findings.is_empty() {
         lines.push(String::new());
-        lines.push("## Remaining Findings".to_string());
-        lines.push("- Project is currently clean.".to_string());
+        lines.push("## 남은 발견 항목".to_string());
+        lines.push("- 현재 프로젝트는 정상입니다.".to_string());
     } else {
         lines.push(String::new());
-        lines.push("## Remaining Findings".to_string());
+        lines.push("## 남은 발견 항목".to_string());
         lines.extend(format_findings(final_result));
     }
 
@@ -207,21 +212,21 @@ fn format_top_priorities(result: &AuditResult) -> Vec<String> {
             let mut lines = vec![format!(
                 "{}. **[{}]** {}",
                 index + 1,
-                severity_label(&finding.severity),
-                finding.title
+                ko::severity_label(&finding.severity),
+                ko::message(&finding.title)
             )];
 
             if let Some(file) = &finding.file {
                 lines.push(format!(
-                    "   - file: `{}`",
+                    "   - 파일: `{}`",
                     format_relative_file(&result.root_dir, file)
                 ));
             }
 
             if !finding.hint.is_empty() {
-                lines.push(format!("   - next: {}", finding.hint));
+                lines.push(format!("   - 다음: {}", ko::message(&finding.hint)));
             } else if !finding.detail.is_empty() {
-                lines.push(format!("   - next: {}", finding.detail));
+                lines.push(format!("   - 다음: {}", ko::message(&finding.detail)));
             }
 
             lines
@@ -235,23 +240,23 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
     for finding in &result.findings {
         lines.push(format!(
             "- **[{}]** {}",
-            severity_label(&finding.severity),
-            finding.title
+            ko::severity_label(&finding.severity),
+            ko::message(&finding.title)
         ));
 
         if let Some(file) = &finding.file {
             lines.push(format!(
-                "  - file: `{}`",
+                "  - 파일: `{}`",
                 format_relative_file(&result.root_dir, file)
             ));
         }
 
         if !finding.detail.is_empty() {
-            lines.push(format!("  - detail: {}", finding.detail));
+            lines.push(format!("  - 상세: {}", ko::message(&finding.detail)));
         }
 
         if !finding.hint.is_empty() {
-            lines.push(format!("  - hint: {}", finding.hint));
+            lines.push(format!("  - 힌트: {}", ko::message(&finding.hint)));
         }
     }
 
@@ -260,21 +265,8 @@ fn format_findings(result: &AuditResult) -> Vec<String> {
 
 fn push_suppression_summary(lines: &mut Vec<String>, suppressed_by_config: usize) {
     if suppressed_by_config > 0 {
-        lines.push(format!("- Suppressed by config: `{suppressed_by_config}`"));
+        lines.push(format!("- 설정으로 숨김: `{suppressed_by_config}`개"));
     }
-}
-
-fn describe_structure(structure: &StructureReport) -> String {
-    let repo_type = if structure.is_monorepo {
-        "monorepo"
-    } else {
-        "single package"
-    };
-
-    format!(
-        "{repo_type}, {} package(s), {} config file(s), {} env folder(s)",
-        structure.package_count, structure.config_files, structure.env_directories
-    )
 }
 
 fn format_relative_file(root_dir: &Path, file_path: &Path) -> String {
@@ -328,14 +320,6 @@ fn relative_path_like_js(root_dir: &Path, file_path: &Path) -> Option<String> {
     Some(path_string(&relative))
 }
 
-fn severity_label(severity: &Severity) -> &'static str {
-    match severity {
-        Severity::Error => "error",
-        Severity::Warn => "warn",
-        Severity::Info => "info",
-    }
-}
-
 fn display_path(path: &Path) -> String {
     path_string(path)
 }
@@ -358,9 +342,9 @@ mod tests {
         let report = format_audit_report(&result);
 
         assert!(report.contains("# Maximus audit"));
-        assert!(report.contains("## Structure"));
-        assert!(report.contains("## Findings"));
-        assert!(report.contains("- Target: `/tmp/project`"));
+        assert!(report.contains("## 구조"));
+        assert!(report.contains("## 발견 항목"));
+        assert!(report.contains("- 대상: `/tmp/project`"));
     }
 
     #[test]
@@ -428,9 +412,9 @@ mod tests {
 
         let report = format_doctor_report(&result);
 
-        assert!(report.contains("## Top Priorities"));
-        assert!(report.contains("1. **[error]** First error"));
-        assert!(report.contains("   - file: `tsconfig.json`"));
+        assert!(report.contains("## 상위 우선순위"));
+        assert!(report.contains("1. **[오류]** First error"));
+        assert!(report.contains("   - 파일: `tsconfig.json`"));
     }
 
     #[test]
@@ -447,7 +431,7 @@ mod tests {
             Some("--- /dev/null\n+++ .env.example\n@@ -0,0 +1,1 @@\n+API_URL="),
         );
 
-        assert!(report.contains("## Preview Diffs"));
+        assert!(report.contains("## 미리보기 diff"));
         assert!(report.contains("```diff"));
         assert!(report.contains("+API_URL="));
     }
@@ -462,9 +446,9 @@ mod tests {
         let doctor_report = format_doctor_report(&result);
         let fix_report = format_fix_result(false, &root_dir, &result, &[], &result, None, None);
 
-        assert!(audit_report.contains("- Suppressed by config: `2`"));
-        assert!(doctor_report.contains("- Suppressed by config: `2`"));
-        assert!(fix_report.contains("- Suppressed by config: `2`"));
+        assert!(audit_report.contains("- 설정으로 숨김: `2`개"));
+        assert!(doctor_report.contains("- 설정으로 숨김: `2`개"));
+        assert!(fix_report.contains("- 설정으로 숨김: `2`개"));
     }
 
     fn sample_result(root_dir: PathBuf) -> AuditResult {

@@ -355,12 +355,12 @@ async function runFallbackBlockingScenarios(installRoot) {
   await assertWrapperFails(
     ["audit", configFixture],
     installRoot,
-    /A Rust runtime is required when a Maximus config file is present/,
+    /Maximus config file이 있을 때는 Rust runtime이 필요합니다/,
   );
   await assertWrapperFails(
     ["audit", fixtureDir, "--only", "env"],
     installRoot,
-    /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
+    /frozen JS compatibility path에서 지원하지 않는 옵션에는 Rust runtime이 필요합니다/,
   );
   await assertWrapperFails(
     ["fix", fixtureDir],

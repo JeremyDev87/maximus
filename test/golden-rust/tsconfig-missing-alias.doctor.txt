@@ -1,20 +1,20 @@
 Maximus doctor
-Target: <TARGET>
+대상: <TARGET>
 
-Diagnosis: blocking issues
-Project shape: single package, 1 package(s), 2 config file(s), 0 env folder(s)
+진단: 차단 이슈 있음
+프로젝트 구조: 단일 패키지, 패키지 1개, 설정 파일 2개, env 폴더 0개
 
-Prescription
-- No automatic fixes are currently available.
-- Review 1 manual issue(s) in priority order below.
+처방
+- 현재 적용 가능한 자동 수정이 없습니다.
+- 아래 우선순위에 따라 수동 확인 항목 1개를 검토하세요.
 
-Top 3 priorities
-1. [error] Path alias target does not exist
-   file: tsconfig.json
-   next: Update or remove stale aliases before they break editor and build resolution.
+상위 3개 우선순위
+1. [오류] 경로 alias 대상이 존재하지 않음
+   파일: tsconfig.json
+   다음: editor와 build 해석을 깨기 전에 오래된 alias를 수정하거나 제거하세요.
 
-Findings
-- [error] Path alias target does not exist
-  file: tsconfig.json
-  detail: @missing/* points to ghost/*, but the resolved path was not found.
-  hint: Update or remove stale aliases before they break editor and build resolution.
+발견 항목
+- [오류] 경로 alias 대상이 존재하지 않음
+  파일: tsconfig.json
+  상세: @missing/*는 ghost/*를 가리키지만 해석된 경로를 찾을 수 없습니다.
+  힌트: editor와 build 해석을 깨기 전에 오래된 alias를 수정하거나 제거하세요.

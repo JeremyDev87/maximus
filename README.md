@@ -67,22 +67,22 @@ npx @jeremyfellaz/maximus fix
 
 ```text
 Maximus audit
-Target: /workspace/my-app
+대상: /workspace/my-app
 
-Status: attention needed
-Findings: 1 error, 2 warnings, 1 info
-Fixes available: 1
+상태: 조치 필요
+발견 항목: 오류 1개, 경고 2개, 정보 1개
+적용 가능한 수정: 1개
 
-Findings
-- [error] Path alias target does not exist
-  file: packages/web/tsconfig.json
-  detail: @ui/* points to src/missing/*
-  hint: Update or remove the stale alias target.
+발견 항목
+- [오류] 경로 alias 대상이 존재하지 않음
+  파일: packages/web/tsconfig.json
+  상세: @ui/*는 src/missing/*를 가리키지만 해석된 경로를 찾을 수 없습니다.
+  힌트: editor와 build 해석을 깨기 전에 오래된 alias를 수정하거나 제거하세요.
 
-- [warn] Missing .env.example contract
-  file: .env
-  detail: Runtime env files exist, but .env.example is missing.
-  hint: Run `maximus fix` to create a blank contract file.
+- [경고] .env.example 계약 파일 누락
+  파일: .env
+  상세: 실행 env 파일은 있지만 .env.example이 없습니다.
+  힌트: `maximus fix`를 실행해 빈 계약 파일을 생성하세요.
 ```
 
 ## GitHub Action

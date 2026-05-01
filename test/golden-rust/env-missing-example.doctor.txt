@@ -1,27 +1,27 @@
 Maximus doctor
-Target: <TARGET>
+대상: <TARGET>
 
-Diagnosis: attention needed
-Project shape: single package, 0 package(s), 1 config file(s), 1 env folder(s)
+진단: 조치 필요
+프로젝트 구조: 단일 패키지, 패키지 0개, 설정 파일 1개, env 폴더 1개
 
-Prescription
-- Run "maximus fix" to apply 1 safe fix(es).
-- Review 1 manual issue(s) in priority order below.
+처방
+- 안전한 수정 1개를 적용하려면 "maximus fix"를 실행하세요.
+- 아래 우선순위에 따라 수동 확인 항목 1개를 검토하세요.
 
-Top 3 priorities
-1. [warn] Concrete env file ".env" is not protected by .gitignore
-   file: .env
-   next: Protect concrete env files with an exact .gitignore entry before committing secrets.
-2. [warn] Missing .env.example contract
-   file: .env
-   next: Run "maximus fix" to create a blank contract file.
+상위 3개 우선순위
+1. [경고] 구체 env 파일 ".env"이 .gitignore로 보호되지 않음
+   파일: .env
+   다음: secret을 커밋하기 전에 구체 env 파일을 정확한 .gitignore 항목으로 보호하세요.
+2. [경고] .env.example 계약 파일 누락
+   파일: .env
+   다음: "maximus fix"를 실행해 빈 계약 파일을 생성하세요.
 
-Findings
-- [warn] Concrete env file ".env" is not protected by .gitignore
-  file: .env
-  detail: Add ".env" to .gitignore.
-  hint: Protect concrete env files with an exact .gitignore entry before committing secrets.
-- [warn] Missing .env.example contract
-  file: .env
-  detail: Runtime env files exist, but .env.example is missing.
-  hint: Run "maximus fix" to create a blank contract file.
+발견 항목
+- [경고] 구체 env 파일 ".env"이 .gitignore로 보호되지 않음
+  파일: .env
+  상세: .gitignore에 ".env"를 추가하세요.
+  힌트: secret을 커밋하기 전에 구체 env 파일을 정확한 .gitignore 항목으로 보호하세요.
+- [경고] .env.example 계약 파일 누락
+  파일: .env
+  상세: 실행 env 파일은 있지만 .env.example이 없습니다.
+  힌트: "maximus fix"를 실행해 빈 계약 파일을 생성하세요.

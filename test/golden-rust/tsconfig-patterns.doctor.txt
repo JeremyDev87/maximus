@@ -1,34 +1,34 @@
 Maximus doctor
-Target: <TARGET>
+대상: <TARGET>
 
-Diagnosis: attention needed
-Project shape: single package, 0 package(s), 4 config file(s), 0 env folder(s)
+진단: 조치 필요
+프로젝트 구조: 단일 패키지, 패키지 0개, 설정 파일 4개, env 폴더 0개
 
-Prescription
-- No automatic fixes are currently available.
-- Review 3 manual issue(s) in priority order below.
+처방
+- 현재 적용 가능한 자동 수정이 없습니다.
+- 아래 우선순위에 따라 수동 확인 항목 3개를 검토하세요.
 
-Top 3 priorities
-1. [warn] Include pattern does not match any files
-   file: empty-include/tsconfig.json
-   next: Fix or remove empty include patterns before TypeScript silently skips expected inputs.
-2. [info] Exclude pattern does not filter any included files
-   file: empty-exclude/tsconfig.json
-   next: Remove or tighten exclude entries that do not change the effective TypeScript input set.
-3. [info] Exclude pattern does not filter any included files
-   file: exclude-only/tsconfig.json
-   next: Remove or tighten exclude entries that do not change the effective TypeScript input set.
+상위 3개 우선순위
+1. [경고] include pattern이 어떤 파일과도 일치하지 않음
+   파일: empty-include/tsconfig.json
+   다음: TypeScript가 예상 입력을 조용히 건너뛰기 전에 빈 include pattern을 수정하거나 제거하세요.
+2. [정보] exclude pattern이 포함 파일을 제외하지 않음
+   파일: empty-exclude/tsconfig.json
+   다음: 실제 TypeScript 입력 집합을 바꾸지 않는 exclude 항목을 제거하거나 좁히세요.
+3. [정보] exclude pattern이 포함 파일을 제외하지 않음
+   파일: exclude-only/tsconfig.json
+   다음: 실제 TypeScript 입력 집합을 바꾸지 않는 exclude 항목을 제거하거나 좁히세요.
 
-Findings
-- [warn] Include pattern does not match any files
-  file: empty-include/tsconfig.json
-  detail: include pattern "src/missing/**/*.ts" matched 0 files under base dir <TARGET>/empty-include.
-  hint: Fix or remove empty include patterns before TypeScript silently skips expected inputs.
-- [info] Exclude pattern does not filter any included files
-  file: empty-exclude/tsconfig.json
-  detail: exclude pattern "generated/**/*.ts" removed 0 files from 1 included file(s) under base dir <TARGET>/empty-exclude.
-  hint: Remove or tighten exclude entries that do not change the effective TypeScript input set.
-- [info] Exclude pattern does not filter any included files
-  file: exclude-only/tsconfig.json
-  detail: exclude pattern "missing/**/*.ts" removed 0 files from 1 included file(s) under base dir <TARGET>/exclude-only.
-  hint: Remove or tighten exclude entries that do not change the effective TypeScript input set.
+발견 항목
+- [경고] include pattern이 어떤 파일과도 일치하지 않음
+  파일: empty-include/tsconfig.json
+  상세: include pattern "src/missing/**/*.ts"은 base dir <TARGET>/empty-include 아래에서 파일 0개와 일치했습니다.
+  힌트: TypeScript가 예상 입력을 조용히 건너뛰기 전에 빈 include pattern을 수정하거나 제거하세요.
+- [정보] exclude pattern이 포함 파일을 제외하지 않음
+  파일: empty-exclude/tsconfig.json
+  상세: exclude pattern "generated/**/*.ts"은 base dir <TARGET>/empty-exclude 아래 포함 파일 1개 중 0개를 제외했습니다.
+  힌트: 실제 TypeScript 입력 집합을 바꾸지 않는 exclude 항목을 제거하거나 좁히세요.
+- [정보] exclude pattern이 포함 파일을 제외하지 않음
+  파일: exclude-only/tsconfig.json
+  상세: exclude pattern "missing/**/*.ts"은 base dir <TARGET>/exclude-only 아래 포함 파일 1개 중 0개를 제외했습니다.
+  힌트: 실제 TypeScript 입력 집합을 바꾸지 않는 exclude 항목을 제거하거나 좁히세요.

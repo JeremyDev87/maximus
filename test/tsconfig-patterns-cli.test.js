@@ -19,36 +19,36 @@ test("fixture-backed tsconfig pattern audits stay wired through the CLI", async 
       name: "empty-include",
       expectedStatus: 1,
       expected: [
-        "Include pattern does not match any files",
-        'include pattern "src/missing/**/*.ts" matched 0 files',
+        "include pattern이 어떤 파일과도 일치하지 않음",
+        'include pattern "src/missing/**/*.ts"은',
       ],
-      absent: ["Exclude pattern does not filter any included files"],
+      absent: ["exclude pattern이 포함 파일을 제외하지 않음"],
     },
     {
       name: "empty-exclude",
       expectedStatus: 0,
       expected: [
-        "Exclude pattern does not filter any included files",
-        'exclude pattern "generated/**/*.ts" removed 0 files from 1 included file(s)',
+        "exclude pattern이 포함 파일을 제외하지 않음",
+        'exclude pattern "generated/**/*.ts"은',
       ],
-      absent: ["Include pattern does not match any files"],
+      absent: ["include pattern이 어떤 파일과도 일치하지 않음"],
     },
     {
       name: "exclude-only",
       expectedStatus: 0,
       expected: [
-        "Exclude pattern does not filter any included files",
-        'exclude pattern "missing/**/*.ts" removed 0 files from 1 included file(s)',
+        "exclude pattern이 포함 파일을 제외하지 않음",
+        'exclude pattern "missing/**/*.ts"은',
       ],
-      absent: ["Include pattern does not match any files"],
+      absent: ["include pattern이 어떤 파일과도 일치하지 않음"],
     },
     {
       name: "useful-patterns",
       expectedStatus: 0,
-      expected: ["No config drift detected."],
+      expected: ["설정 차이가 감지되지 않았습니다."],
       absent: [
-        "Include pattern does not match any files",
-        "Exclude pattern does not filter any included files",
+        "include pattern이 어떤 파일과도 일치하지 않음",
+        "exclude pattern이 포함 파일을 제외하지 않음",
       ],
     },
   ];
@@ -108,12 +108,12 @@ test("CLI audit respects allowJs when evaluating tsconfig include patterns", asy
 
   const withoutAllowJs = runAudit(path.join(rootDir, "js-without-allowjs"));
   assert.equal(withoutAllowJs.status, 1, withoutAllowJs.stderr);
-  assert.ok(withoutAllowJs.stdout.includes("Include pattern does not match any files"));
+  assert.ok(withoutAllowJs.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
 
   const withAllowJs = runAudit(path.join(rootDir, "js-with-allowjs"));
   assert.equal(withAllowJs.status, 0, withAllowJs.stderr);
-  assert.ok(withAllowJs.stdout.includes("No config drift detected."));
-  assert.ok(!withAllowJs.stdout.includes("Include pattern does not match any files"));
+  assert.ok(withAllowJs.stdout.includes("설정 차이가 감지되지 않았습니다."));
+  assert.ok(!withAllowJs.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
 });
 
 test("CLI audit matches question-mark and zero-width star tsconfig include globs", async (t) => {
@@ -154,8 +154,8 @@ test("CLI audit matches question-mark and zero-width star tsconfig include globs
     const result = runAudit(path.join(rootDir, target));
 
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("No config drift detected."));
-    assert.ok(!result.stdout.includes("Include pattern does not match any files"));
+    assert.ok(result.stdout.includes("설정 차이가 감지되지 않았습니다."));
+    assert.ok(!result.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
   }
 });
 
@@ -227,18 +227,18 @@ test("CLI audit respects inherited allowJs and outDir when evaluating tsconfig p
 
   const inheritedAllowJs = runAudit(path.join(rootDir, "inherited-allowjs"));
   assert.equal(inheritedAllowJs.status, 0, inheritedAllowJs.stderr);
-  assert.ok(inheritedAllowJs.stdout.includes("No config drift detected."));
-  assert.ok(!inheritedAllowJs.stdout.includes("Include pattern does not match any files"));
+  assert.ok(inheritedAllowJs.stdout.includes("설정 차이가 감지되지 않았습니다."));
+  assert.ok(!inheritedAllowJs.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
 
   const inheritedOutDir = runAudit(path.join(rootDir, "inherited-outdir"));
   assert.equal(inheritedOutDir.status, 0, inheritedOutDir.stderr);
-  assert.ok(inheritedOutDir.stdout.includes("Exclude pattern does not filter any included files"));
-  assert.ok(inheritedOutDir.stdout.includes('exclude pattern "dist/**/*.d.ts" removed 0 files from 1 included file(s)'));
+  assert.ok(inheritedOutDir.stdout.includes("exclude pattern이 포함 파일을 제외하지 않음"));
+  assert.ok(inheritedOutDir.stdout.includes('exclude pattern "dist/**/*.d.ts"은'));
 
   const outdirInclude = runAudit(path.join(rootDir, "outdir-include"));
   assert.equal(outdirInclude.status, 1, outdirInclude.stderr);
-  assert.ok(outdirInclude.stdout.includes("Include pattern does not match any files"));
-  assert.ok(outdirInclude.stdout.includes('include pattern "dist" matched 0 files'));
+  assert.ok(outdirInclude.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
+  assert.ok(outdirInclude.stdout.includes('include pattern "dist"은'));
 });
 
 test("CLI audit skips explicit empty inputs and default node_modules when evaluating tsconfig patterns", async (t) => {
@@ -320,20 +320,20 @@ test("CLI audit skips explicit empty inputs and default node_modules when evalua
     const result = runAudit(path.join(rootDir, target));
 
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("No config drift detected."));
-    assert.ok(!result.stdout.includes("Include pattern does not match any files"));
-    assert.ok(!result.stdout.includes("Exclude pattern does not filter any included files"));
+    assert.ok(result.stdout.includes("설정 차이가 감지되지 않았습니다."));
+    assert.ok(!result.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
+    assert.ok(!result.stdout.includes("exclude pattern이 포함 파일을 제외하지 않음"));
   }
 
   const filesWithExclude = runAudit(path.join(rootDir, "files-with-exclude"));
   assert.equal(filesWithExclude.status, 0, filesWithExclude.stderr);
-  assert.ok(filesWithExclude.stdout.includes("Exclude pattern does not filter any included files"));
-  assert.ok(filesWithExclude.stdout.includes('exclude pattern "src/**/*.d.ts" removed 0 files from 1 included file(s)'));
+  assert.ok(filesWithExclude.stdout.includes("exclude pattern이 포함 파일을 제외하지 않음"));
+  assert.ok(filesWithExclude.stdout.includes('exclude pattern "src/**/*.d.ts"은'));
 
   const duplicateExcludes = runAudit(path.join(rootDir, "duplicate-excludes"));
   assert.equal(duplicateExcludes.status, 0, duplicateExcludes.stderr);
-  assert.ok(duplicateExcludes.stdout.includes("Exclude pattern does not filter any included files"));
-  assert.ok(duplicateExcludes.stdout.includes('exclude pattern "src/generated/**/*.d.ts" removed 0 files from 0 included file(s)'));
+  assert.ok(duplicateExcludes.stdout.includes("exclude pattern이 포함 파일을 제외하지 않음"));
+  assert.ok(duplicateExcludes.stdout.includes('exclude pattern "src/generated/**/*.d.ts"은'));
 });
 
 test("CLI audit inherits top-level pattern fields and reports invalid pattern entries", async (t) => {
@@ -454,38 +454,54 @@ test("CLI audit inherits top-level pattern fields and reports invalid pattern en
 
   const inheritedInclude = runAudit(path.join(rootDir, "app-inherited-include"));
   assert.equal(inheritedInclude.status, 1, inheritedInclude.stderr);
-  assert.ok(inheritedInclude.stdout.includes("Include pattern does not match any files"));
-  assert.ok(inheritedInclude.stdout.includes('include pattern "./src/**/*.ts" matched 0 files'));
+  assert.ok(inheritedInclude.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
+  assert.ok(inheritedInclude.stdout.includes('include pattern "./src/**/*.ts"은'));
 
   const missingExtends = runAudit(path.join(rootDir, "app-missing-extends"));
   assert.equal(missingExtends.status, 1, missingExtends.stderr);
-  assert.ok(missingExtends.stdout.includes("Inherited tsconfig could not be found"));
+  assert.ok(missingExtends.stdout.includes("상속된 tsconfig를 찾을 수 없음"));
   assert.ok(missingExtends.stdout.includes("shared-missing/tsconfig.base.json"));
 
   const inheritedFilesEmpty = runAudit(path.join(rootDir, "app-inherited-files-empty"));
   assert.equal(inheritedFilesEmpty.status, 0, inheritedFilesEmpty.stderr);
-  assert.ok(inheritedFilesEmpty.stdout.includes("No config drift detected."));
-  assert.ok(!inheritedFilesEmpty.stdout.includes("Exclude pattern does not filter any included files"));
+  assert.ok(inheritedFilesEmpty.stdout.includes("설정 차이가 감지되지 않았습니다."));
+  assert.ok(!inheritedFilesEmpty.stdout.includes("exclude pattern이 포함 파일을 제외하지 않음"));
 
   const invalidPatternEntry = runAudit(path.join(rootDir, "invalid-pattern-entry"));
   assert.equal(invalidPatternEntry.status, 1, invalidPatternEntry.stderr);
-  assert.ok(invalidPatternEntry.stdout.includes('"include" contains a non-string pattern'));
-  assert.ok(invalidPatternEntry.stdout.includes("declares include[0], but TypeScript expects string patterns."));
+  assert.ok(invalidPatternEntry.stdout.includes('"include"에 string이 아닌 pattern이 포함됨'));
+  assert.ok(
+    invalidPatternEntry.stdout.includes(
+      "include[0]를 선언하지만 TypeScript는 string pattern을 기대합니다.",
+    ),
+  );
 
   const invalidFilesEntry = runAudit(path.join(rootDir, "invalid-files-entry"));
   assert.equal(invalidFilesEntry.status, 1, invalidFilesEntry.stderr);
-  assert.ok(invalidFilesEntry.stdout.includes('"files" entries must point to explicit files'));
-  assert.ok(invalidFilesEntry.stdout.includes("declares files[0] as src/*.ts"));
+  assert.ok(invalidFilesEntry.stdout.includes('"files" 항목은 명시적인 파일을 가리켜야 함'));
+  assert.ok(
+    invalidFilesEntry.stdout.includes(
+      "files[0] as src/*.ts를 선언하지만 TypeScript files 항목에는 glob wildcard를 사용할 수 없습니다.",
+    ),
+  );
 
   const invalidFilesDirectory = runAudit(path.join(rootDir, "invalid-files-directory"));
   assert.equal(invalidFilesDirectory.status, 1, invalidFilesDirectory.stderr);
-  assert.ok(invalidFilesDirectory.stdout.includes('"files" entries must point to files'));
-  assert.ok(invalidFilesDirectory.stdout.includes("declares files[0] as src, but that path resolves to a directory."));
+  assert.ok(invalidFilesDirectory.stdout.includes('"files" 항목은 파일을 가리켜야 함'));
+  assert.ok(
+    invalidFilesDirectory.stdout.includes(
+      "files[0] as src를 선언하지만 해당 path는 directory로 해석됩니다.",
+    ),
+  );
 
   const invalidFilesMissing = runAudit(path.join(rootDir, "invalid-files-missing"));
   assert.equal(invalidFilesMissing.status, 1, invalidFilesMissing.stderr);
-  assert.ok(invalidFilesMissing.stdout.includes('"files" entries must point to existing files'));
-  assert.ok(invalidFilesMissing.stdout.includes("declares files[0] as src/missing.ts"));
+  assert.ok(invalidFilesMissing.stdout.includes('"files" 항목은 존재하는 파일을 가리켜야 함'));
+  assert.ok(
+    invalidFilesMissing.stdout.includes(
+      "files[0] as src/missing.ts를 선언하지만 해당 path는 존재하는 파일로 해석되지 않습니다.",
+    ),
+  );
 });
 
 test("CLI audit treats missing Next generated types include as info-only", async (t) => {
@@ -524,27 +540,27 @@ test("CLI audit treats missing Next generated types include as info-only", async
 
   const nextResult = runAudit(path.join(rootDir, "next-app"));
   assert.equal(nextResult.status, 0, nextResult.stderr);
-  assert.ok(nextResult.stdout.includes("Include pattern does not match any files"));
-  assert.ok(nextResult.stdout.includes('include pattern ".next/types/**/*.ts" matched 0 files'));
+  assert.ok(nextResult.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
+  assert.ok(nextResult.stdout.includes('include pattern ".next/types/**/*.ts"은'));
   assert.ok(
-    nextResult.stdout.includes("Next.js generates .next/types during development or build"),
+    nextResult.stdout.includes("Next.js는 개발 또는 build 중 .next/types를 생성하므로"),
   );
   assert.ok(
     !nextResult.stdout.includes(
-      "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+      "TypeScript가 예상 입력을 조용히 건너뛰기 전에 빈 include pattern을 수정하거나 제거하세요.",
     ),
   );
 
   const plainResult = runAudit(path.join(rootDir, "plain-app"));
   assert.equal(plainResult.status, 1, plainResult.stderr);
-  assert.ok(plainResult.stdout.includes("Include pattern does not match any files"));
+  assert.ok(plainResult.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
   assert.ok(
     plainResult.stdout.includes(
-      "Fix or remove empty include patterns before TypeScript silently skips expected inputs.",
+      "TypeScript가 예상 입력을 조용히 건너뛰기 전에 빈 include pattern을 수정하거나 제거하세요.",
     ),
   );
   assert.ok(
-    !plainResult.stdout.includes("Next.js generates .next/types during development or build"),
+    !plainResult.stdout.includes("Next.js는 개발 또는 build 중 .next/types를 생성하므로"),
   );
 });
 

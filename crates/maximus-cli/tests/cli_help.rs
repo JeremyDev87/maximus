@@ -19,9 +19,9 @@ fn no_args_prints_help() {
         [
             "Maximus",
             "",
-            "Bring order to chaotic configs.",
+            "혼란스러운 설정을 정리합니다.",
             "",
-            "Usage",
+            "사용법",
             "  maximus audit [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
             "  maximus doctor [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--format <format>] [--json] [--output <path>]",
             "  maximus fix [path] [--only <checks>] [--skip <checks>] [--fail-on <level>] [--dry-run] [--diff] [--env-source-comments] [--fix-id <id>] [--fix-prefix <prefix>] [--format <format>] [--json] [--output <path>]",
@@ -83,7 +83,7 @@ fn audit_format_markdown_routes_to_markdown_report() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     assert!(stdout.starts_with("# Maximus audit\n"));
-    assert!(stdout.contains("- Status: `clean`"));
+    assert!(stdout.contains("- 상태: `정상`"));
 }
 
 #[test]
@@ -229,23 +229,85 @@ fn doctor_text_uses_expected_sections() {
         String::from_utf8(output.stdout).expect("stdout should be utf8"),
         [
             "Maximus doctor",
-            &format!("Target: {}", fixture.to_string_lossy()),
+            &format!("대상: {}", fixture.to_string_lossy()),
             "",
-            "Diagnosis: clean",
-            "Project shape: single package, 1 package(s), 1 config file(s), 0 env folder(s)",
+            "진단: 정상",
+            "프로젝트 구조: 단일 패키지, 패키지 1개, 설정 파일 1개, env 폴더 0개",
             "",
-            "Prescription",
-            "- No automatic fixes are currently available.",
-            "- No manual follow-up is required right now.",
+            "처방",
+            "- 현재 적용 가능한 자동 수정이 없습니다.",
+            "- 지금은 수동 후속 조치가 필요하지 않습니다.",
             "",
-            "No config drift detected.",
+            "설정 차이가 감지되지 않았습니다.",
             "",
-            "Recommended structure",
-            "- Current config surface looks healthy. Keep shared rules centralized as the repo grows.",
+            "권장 구조",
+            "- 현재 설정 표면은 정상입니다. repo가 커져도 shared rule을 중앙에 유지하세요.",
             "",
         ]
         .join("\n")
     );
+}
+
+#[test]
+fn audit_text_translates_workspace_runner_and_editorconfig_findings() {
+    let workspace = fixture_path_for("workspace-config/empty");
+    let workspace_output = maximus_bin()
+        .args(["audit", workspace.to_string_lossy().as_ref()])
+        .output()
+        .expect("workspace audit should run");
+    let workspace_stdout = String::from_utf8(workspace_output.stdout).expect("stdout is utf8");
+    assert!(workspace_output.stderr.is_empty());
+    assert!(workspace_stdout.contains("pnpm-workspace.yaml이 package pattern을 선언하지 않음"));
+    assert!(workspace_stdout.contains("workspace 파일이 placeholder처럼 보입니다"));
+    assert!(!workspace_stdout.contains("pnpm-workspace.yaml does not declare any package patterns"));
+    assert!(!workspace_stdout.contains("No package globs were found"));
+
+    let test_runner = fixture_path_for("test-runners/dual-config");
+    let runner_output = maximus_bin()
+        .args(["audit", test_runner.to_string_lossy().as_ref()])
+        .output()
+        .expect("test runner audit should run");
+    let runner_stdout = String::from_utf8(runner_output.stdout).expect("stdout is utf8");
+    assert!(runner_output.stderr.is_empty());
+    assert!(runner_stdout.contains("Jest와 Vitest config가 함께 존재함"));
+    assert!(runner_stdout.contains("명령에 따라 서로 다른 환경에서 test가 실행될 수 있습니다"));
+    assert!(!runner_stdout.contains("This directory declares both Jest and Vitest"));
+
+    let editorconfig = fixture_path_for("editorconfig-prettier/conflict");
+    let editorconfig_output = maximus_bin()
+        .args(["audit", editorconfig.to_string_lossy().as_ref()])
+        .output()
+        .expect("EditorConfig audit should run");
+    let editorconfig_stdout =
+        String::from_utf8(editorconfig_output.stdout).expect("stdout is utf8");
+    assert!(editorconfig_output.stderr.is_empty());
+    assert!(editorconfig_stdout.contains("EditorConfig와 Prettier 설정이 일치하지 않음"));
+    assert!(editorconfig_stdout
+        .contains("EditorConfig는 indent_style=tab, indent_size=4, end_of_line=crlf를 설정하지만"));
+    assert!(editorconfig_stdout.contains("편집기 저장과 포매터 출력이 충돌하지 않도록"));
+    assert!(!editorconfig_stdout.contains("EditorConfig sets"));
+    assert!(!editorconfig_stdout.contains("formatter output"));
+}
+
+#[test]
+fn audit_text_translates_duplicate_config_and_structure_guidance() {
+    let fixture = fixture_path_for("eslint-migration-guidance");
+    let output = maximus_bin()
+        .args(["audit", fixture.to_string_lossy().as_ref()])
+        .output()
+        .expect("duplicate config audit should run");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    assert!(output.stderr.is_empty());
+    assert!(stdout.contains("ESLint 설정이 여러 위치에 선언됨"));
+    assert!(stdout.contains("ESLint 설정 출처 2개를 찾았습니다"));
+    assert!(stdout.contains("legacy ESLint 설정과 flat 설정이 함께 존재함"));
+    assert!(stdout.contains("eslint.config.*를 단일 기준으로 마이그레이션"));
+    assert!(stdout.contains("repo 전체 ESLint 진입점을 줄이세요"));
+    assert!(!stdout.contains("Found 2 ESLint config sources"));
+    assert!(!stdout.contains("Keep a single ESLint"));
+    assert!(!stdout.contains("Migrate to eslint.config"));
+    assert!(!stdout.contains("Reduce repo-wide ESLint"));
 }
 
 #[test]
@@ -289,7 +351,7 @@ fn fix_format_sarif_fails_closed() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Option \"--format sarif\" is only available for \"audit\" and \"doctor\".\n"
+        "Maximus 실패: \"--format sarif\" 옵션은 \"audit\"과 \"doctor\"에서만 사용할 수 있습니다.\n"
     );
 }
 
@@ -303,7 +365,7 @@ fn unknown_command_uses_prefixed_stderr_and_exit_code_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Unknown command \"foobar\". Run \"maximus help\" for usage.\n"
+        "Maximus 실패: 알 수 없는 명령 \"foobar\"입니다. 사용법은 \"maximus help\"를 실행하세요.\n"
     );
 }
 
@@ -322,7 +384,7 @@ fn unknown_command_does_not_load_broken_config() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("stderr should be utf8"),
-        "Maximus failed: Unknown command \"foobar\". Run \"maximus help\" for usage.\n"
+        "Maximus 실패: 알 수 없는 명령 \"foobar\"입니다. 사용법은 \"maximus help\"를 실행하세요.\n"
     );
 }
 
@@ -336,7 +398,10 @@ fn missing_directory_uses_prefixed_stderr_and_exit_code_two() {
     assert_eq!(output.status.code(), Some(2));
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.starts_with("Maximus failed: "));
+    assert!(stderr.starts_with("Maximus 실패: "));
+    assert!(stderr.contains("파일이나 디렉터리가 없습니다"));
+    assert!(!stderr.contains("IO error for operation"));
+    assert!(!stderr.contains("No such file or directory"));
 }
 
 #[cfg(unix)]
