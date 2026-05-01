@@ -16,14 +16,14 @@ test("fixture-backed output path overlap audits stay wired through the CLI", asy
 
   const overlap = runAudit("./test/fixtures/output-path-overlap/outdir-src");
   assert.equal(overlap.status, 1, overlap.stderr);
-  assert.ok(overlap.stdout.includes("Output directory overlaps the TypeScript source root"));
-  assert.ok(overlap.stdout.includes('outDir "src" overlaps source root "src".'));
+  assert.ok(overlap.stdout.includes("출력 디렉터리가 TypeScript source root와 겹침"));
+  assert.ok(overlap.stdout.includes('outDir "src"이 source root "src"와 겹칩니다.'));
 
   const safe = runAudit("./test/fixtures/output-path-overlap/outdir-dist");
   assert.equal(safe.status, 0, safe.stderr);
-  assert.ok(safe.stdout.includes("No config drift detected."));
-  assert.ok(!safe.stdout.includes("Output directory overlaps the TypeScript source root"));
-  assert.ok(!safe.stdout.includes("Output directory is nested inside the TypeScript source root"));
+  assert.ok(safe.stdout.includes("설정 차이가 감지되지 않았습니다."));
+  assert.ok(!safe.stdout.includes("출력 디렉터리가 TypeScript source root와 겹침"));
+  assert.ok(!safe.stdout.includes("출력 디렉터리가 TypeScript source root 안에 있음"));
 });
 
 test("CLI audit handles rootDir-dot, mixed inputs, and unmatched-include overlap boundaries", async (t) => {
@@ -99,24 +99,24 @@ test("CLI audit handles rootDir-dot, mixed inputs, and unmatched-include overlap
 
   const rootdirDot = runAudit(path.join(rootDir, "rootdir-dot"));
   assert.equal(rootdirDot.status, 1, rootdirDot.stderr);
-  assert.ok(rootdirDot.stdout.includes("Output directory is nested inside the TypeScript source root"));
-  assert.ok(rootdirDot.stdout.includes('outDir "src" is nested inside source root ".".'));
+  assert.ok(rootdirDot.stdout.includes("출력 디렉터리가 TypeScript source root 안에 있음"));
+  assert.ok(rootdirDot.stdout.includes('outDir "src"이 source root "." 안에 있습니다.'));
 
   const outdirDot = runAudit(path.join(rootDir, "outdir-dot"));
   assert.equal(outdirDot.status, 1, outdirDot.stderr);
-  assert.ok(outdirDot.stdout.includes("Output directory contains TypeScript input files"));
-  assert.ok(outdirDot.stdout.includes('outDir "." contains TypeScript input "src/index.ts".'));
+  assert.ok(outdirDot.stdout.includes("출력 디렉터리에 TypeScript 입력 파일이 포함됨"));
+  assert.ok(outdirDot.stdout.includes('outDir "."에 TypeScript 입력 "src/index.ts"이 포함됩니다.'));
 
   const mixed = runAudit(path.join(rootDir, "mixed"));
   assert.equal(mixed.status, 1, mixed.stderr);
-  assert.ok(mixed.stdout.includes("Output directory overlaps the TypeScript source root"));
-  assert.ok(mixed.stdout.includes('outDir "src" overlaps source root "src".'));
+  assert.ok(mixed.stdout.includes("출력 디렉터리가 TypeScript source root와 겹침"));
+  assert.ok(mixed.stdout.includes('outDir "src"이 source root "src"와 겹칩니다.'));
 
   const safe = runAudit(path.join(rootDir, "safe"));
   assert.equal(safe.status, 1, safe.stderr);
-  assert.ok(!safe.stdout.includes("Output directory overlaps the TypeScript source root"));
-  assert.ok(!safe.stdout.includes("Output directory is nested inside the TypeScript source root"));
-  assert.ok(safe.stdout.includes("Include pattern does not match any files"));
+  assert.ok(!safe.stdout.includes("출력 디렉터리가 TypeScript source root와 겹침"));
+  assert.ok(!safe.stdout.includes("출력 디렉터리가 TypeScript source root 안에 있음"));
+  assert.ok(safe.stdout.includes("include pattern이 어떤 파일과도 일치하지 않음"));
 });
 
 function runAudit(target) {

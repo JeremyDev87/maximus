@@ -3,6 +3,7 @@ mod exit_codes;
 mod fail_policy;
 mod report_diff;
 mod report_json;
+mod report_ko;
 mod report_markdown;
 mod report_sarif;
 mod report_text;
@@ -38,7 +39,7 @@ enum CliError {
     Args(ArgsError),
     Config(LoadConfigError),
     Io(io::Error),
-    Json(serde_json::Error),
+    Json,
     InvalidArguments(String),
     UnknownCommand(String),
 }
@@ -47,16 +48,14 @@ impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Args(error) => write!(f, "{error}"),
-            Self::Config(error) => write!(f, "{error}"),
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Json(error) => write!(f, "{error}"),
+            Self::Config(error) => write!(f, "{}", format_config_error(error)),
+            Self::Io(error) => write!(f, "{}", format_io_error(error)),
+            Self::Json => write!(f, "JSON 출력을 생성할 수 없습니다."),
             Self::InvalidArguments(message) => write!(f, "{message}"),
-            Self::UnknownCommand(command) => {
-                write!(
-                    f,
-                    "Unknown command \"{command}\". Run \"maximus help\" for usage."
-                )
-            }
+            Self::UnknownCommand(command) => write!(
+                f,
+                "알 수 없는 명령 \"{command}\"입니다. 사용법은 \"maximus help\"를 실행하세요."
+            ),
         }
     }
 }
@@ -82,8 +81,63 @@ impl From<LoadConfigError> for CliError {
 }
 
 impl From<serde_json::Error> for CliError {
-    fn from(value: serde_json::Error) -> Self {
-        Self::Json(value)
+    fn from(_: serde_json::Error) -> Self {
+        Self::Json
+    }
+}
+
+fn format_config_error(error: &LoadConfigError) -> String {
+    match error {
+        LoadConfigError::Io(error) => {
+            format!("설정 파일을 읽을 수 없습니다: {}", format_io_error(error))
+        }
+        LoadConfigError::Parse(error) => format!(
+            "설정 파일 {}을 파싱할 수 없습니다. JSONC 문법을 확인하세요.",
+            error.label()
+        ),
+    }
+}
+
+fn format_io_error(error: &io::Error) -> String {
+    let message = error.to_string();
+    if let Some(rest) = message.strip_prefix("IO error for operation on ") {
+        if let Some((path, reason)) = rest.split_once(": ") {
+            return format!(
+                "{path}에서 I/O 작업을 수행할 수 없습니다: {}",
+                korean_io_reason(reason)
+            );
+        }
+    }
+
+    korean_io_reason_for_kind(error.kind()).to_string()
+}
+
+fn korean_io_reason(reason: &str) -> &'static str {
+    if reason.contains("No such file or directory") {
+        "파일이나 디렉터리가 없습니다."
+    } else if reason.contains("Permission denied") {
+        "권한이 거부되었습니다."
+    } else if reason.contains("not a directory") {
+        "디렉터리가 아닙니다."
+    } else if reason.contains("Is a directory") {
+        "디렉터리입니다."
+    } else {
+        "운영체제 I/O 오류가 발생했습니다."
+    }
+}
+
+fn korean_io_reason_for_kind(kind: io::ErrorKind) -> &'static str {
+    match kind {
+        io::ErrorKind::NotFound => "파일이나 디렉터리가 없습니다.",
+        io::ErrorKind::PermissionDenied => "권한이 거부되었습니다.",
+        io::ErrorKind::AlreadyExists => "이미 존재합니다.",
+        io::ErrorKind::InvalidInput => "입력값이 올바르지 않습니다.",
+        io::ErrorKind::InvalidData => "데이터가 올바르지 않습니다.",
+        io::ErrorKind::Unsupported => "지원하지 않는 작업입니다.",
+        io::ErrorKind::UnexpectedEof => "예상보다 일찍 파일 끝에 도달했습니다.",
+        io::ErrorKind::WriteZero => "파일에 쓸 수 없습니다.",
+        io::ErrorKind::BrokenPipe => "출력 대상 연결이 끊어졌습니다.",
+        _ => "I/O 작업을 완료할 수 없습니다.",
     }
 }
 
@@ -91,7 +145,7 @@ fn main() {
     let exit_code = match run_cli(env::args_os().skip(1)) {
         Ok(exit_code) => exit_code,
         Err(error) => {
-            eprintln!("Maximus failed: {error}");
+            eprintln!("Maximus 실패: {error}");
             exit_codes::FAILURE
         }
     };
@@ -176,7 +230,7 @@ fn run_fix_command(
     if initial.planned_fixes.len() != initial.result.fixes.len() {
         return Err(CliError::Io(io::Error::new(
             io::ErrorKind::Unsupported,
-            "one or more fixes are not executable from the Rust runtime yet",
+            "하나 이상의 수정 항목은 아직 Rust runtime에서 실행할 수 없습니다",
         )));
     }
 
@@ -187,7 +241,7 @@ fn run_fix_command(
     let planned = select_planned_fixes(&initial.planned_fixes, &selector);
     if !selector.is_empty() && planned.is_empty() {
         return Err(CliError::InvalidArguments(
-            "No matching fixes for the requested selector.".to_string(),
+            "요청한 selector와 일치하는 수정 항목이 없습니다.".to_string(),
         ));
     }
     let selected_fixes = select_fix_plans(&initial.result.fixes, &selector);
@@ -462,7 +516,7 @@ fn parse_fail_on_level(value: &str) -> Result<FailOnLevel, CliError> {
         "info" => Ok(FailOnLevel::Info),
         "none" => Ok(FailOnLevel::None),
         _ => Err(CliError::InvalidArguments(format!(
-            "Unknown fail-on level \"{value}\". Use one of: error, warn, info, none."
+            "알 수 없는 fail-on level \"{value}\"입니다. 사용 가능한 값: error, warn, info, none."
         ))),
     }
 }
@@ -473,7 +527,7 @@ fn validate_check_ids(source: &str, ids: &[String]) -> Result<(), CliError> {
     for id in ids {
         if !known_ids.contains(&id.as_str()) {
             return Err(CliError::InvalidArguments(format!(
-                "Unknown check id \"{id}\" in {source}. Use one of: {}.",
+                "{source}에 알 수 없는 check id \"{id}\"가 있습니다. 사용 가능한 값: {}.",
                 known_ids.join(", ")
             )));
         }
@@ -490,19 +544,20 @@ fn validate_command_flags(command: Option<&str>, flags: &Flags) -> Result<(), Cl
 
     if uses_fix_only_flags && (flags.help || command != Some("fix")) {
         return Err(CliError::InvalidArguments(
-            "Options \"--diff\", \"--env-source-comments\", \"--fix-id\", and \"--fix-prefix\" are only available for \"fix\".".to_string(),
+            "\"--diff\", \"--env-source-comments\", \"--fix-id\", \"--fix-prefix\" 옵션은 \"fix\"에서만 사용할 수 있습니다.".to_string(),
         ));
     }
 
     if flags.diff && !flags.dry_run {
         return Err(CliError::InvalidArguments(
-            "Option \"--diff\" requires \"fix --dry-run\".".to_string(),
+            "\"--diff\" 옵션은 \"fix --dry-run\"이 필요합니다.".to_string(),
         ));
     }
 
     if command == Some("fix") && matches!(flags.output_format, OutputFormat::Sarif) {
         return Err(CliError::InvalidArguments(
-            "Option \"--format sarif\" is only available for \"audit\" and \"doctor\".".to_string(),
+            "\"--format sarif\" 옵션은 \"audit\"과 \"doctor\"에서만 사용할 수 있습니다."
+                .to_string(),
         ));
     }
 

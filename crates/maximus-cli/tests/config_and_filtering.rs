@@ -718,7 +718,7 @@ fn config_suppression_text_report_shows_nonzero_suppressed_count() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     assert!(
-        stdout.contains("Suppressed by config: 1"),
+        stdout.contains("설정으로 숨김: 1개"),
         "text report should show nonzero suppressed count: {stdout}"
     );
 }
@@ -1592,7 +1592,7 @@ fn broken_config_is_reported_as_cli_error() {
 
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8(output.stderr.clone()).expect("stderr should be utf8");
-    assert!(stderr.contains("Maximus failed:"));
+    assert!(stderr.contains("Maximus 실패:"));
     assert!(stderr.contains(&config_path.to_string_lossy().to_string()));
 }
 
@@ -1741,7 +1741,9 @@ fn empty_cli_check_filters_are_reported_as_cli_errors() {
 
         assert_eq!(output.status.code(), Some(2), "{output:?}");
         let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-        assert!(stderr.contains(&format!("Option \"{flag}\" requires a non-empty value.")));
+        assert!(stderr.contains(&format!(
+            "\"{flag}\" 옵션에는 비어 있지 않은 값이 필요합니다."
+        )));
     }
 }
 
@@ -1751,16 +1753,16 @@ fn cli_filters_do_not_hide_invalid_config_check_ids() {
     write_mixed_fixture(fixture.path());
 
     for (config_body, cli_args, expected_fragment) in [
-        (
-            r#"{ "checks": { "only": ["not-a-real-check"] } }"#,
-            vec!["--skip", "env"],
-            "Unknown check id \"not-a-real-check\" in only.",
-        ),
-        (
-            r#"{ "checks": { "skip": ["not-a-real-check"] } }"#,
-            vec!["--only", "env"],
-            "Unknown check id \"not-a-real-check\" in skip.",
-        ),
+            (
+                r#"{ "checks": { "only": ["not-a-real-check"] } }"#,
+                vec!["--skip", "env"],
+                "only에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
+            ),
+            (
+                r#"{ "checks": { "skip": ["not-a-real-check"] } }"#,
+                vec!["--only", "env"],
+                "skip에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
+            ),
     ] {
         write(fixture.path().join("maximus.config.json"), config_body);
 

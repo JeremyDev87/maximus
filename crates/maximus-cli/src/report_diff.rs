@@ -4,11 +4,13 @@ use std::path::Path;
 
 use maximus_core::{FixFilePreview, PreviewedFix};
 
+use crate::report_ko as ko;
+
 pub fn render_fix_preview(target_dir: &Path, previews: &[PreviewedFix]) -> String {
     let mut blocks = Vec::new();
 
     for preview in previews {
-        blocks.push(format!("- {}", preview.title));
+        blocks.push(format!("- {}", ko::fix_title(&preview.title)));
 
         for file_preview in &preview.previews {
             blocks.push(render_file_diff(target_dir, file_preview));
@@ -97,7 +99,10 @@ fn diff_lines(text: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    let mut lines = text.split('\n').map(ToString::to_string).collect::<Vec<_>>();
+    let mut lines = text
+        .split('\n')
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
     if text.ends_with('\n') {
         lines.pop();
     }
@@ -152,6 +157,8 @@ mod tests {
         );
 
         assert!(preview.contains("--- /dev/null"));
+        assert!(preview.contains("- .env.example 생성"));
+        assert!(preview.contains("- .env.example에 누락된 키 추가"));
         assert!(preview.contains("+++ .env.example"));
         assert!(preview.contains("+API_URL="));
         assert!(preview.contains("@@ -1,1 +1,2 @@"));
@@ -179,6 +186,8 @@ mod tests {
         assert!(preview.contains("--- .env.example"));
         assert!(preview.contains("+++ .env.example"));
         assert!(preview.contains("@@ -0,0 +1,1 @@"));
+        assert!(preview.contains("- .env.example에 누락된 키 추가"));
+        assert!(!preview.contains("Append missing keys to .env.example"));
         assert!(!preview.contains("/dev/null"));
     }
 }

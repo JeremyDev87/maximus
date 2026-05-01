@@ -299,7 +299,7 @@ test("wrapper blocks the frozen JS fallback when Rust-only flags are requested",
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required/);
+  assert.match(result.stderr, /Rust runtime이 필요합니다/);
   assert.match(result.stderr, /--only/);
 
   const outputPath = path.join(rootDir, "report.json");
@@ -313,7 +313,7 @@ test("wrapper blocks the frozen JS fallback when Rust-only flags are requested",
 
   assert.equal(outputResult.code, 1);
   assert.equal(outputResult.stdout.trim(), "");
-  assert.match(outputResult.stderr, /A Rust runtime is required/);
+  assert.match(outputResult.stderr, /Rust runtime이 필요합니다/);
   assert.match(outputResult.stderr, /--output/);
   await assert.rejects(access(outputPath));
 });
@@ -362,7 +362,7 @@ test("wrapper blocks output format flags on the frozen JS fallback", async (t) =
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required/);
+  assert.match(result.stderr, /Rust runtime이 필요합니다/);
   assert.match(result.stderr, /--format/);
 
   const leadingResult = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, [
@@ -374,7 +374,7 @@ test("wrapper blocks output format flags on the frozen JS fallback", async (t) =
 
   assert.equal(leadingResult.code, 1);
   assert.equal(leadingResult.stdout.trim(), "");
-  assert.match(leadingResult.stderr, /A Rust runtime is required/);
+  assert.match(leadingResult.stderr, /Rust runtime이 필요합니다/);
   assert.match(leadingResult.stderr, /--format/);
 });
 
@@ -470,7 +470,7 @@ test("wrapper blocks the frozen JS fallback when a Maximus config file is presen
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /Maximus config file이 있을 때는 Rust runtime이 필요합니다/);
   assert.match(result.stderr, /maximus\.config\.json/);
 });
 
@@ -523,7 +523,7 @@ test("wrapper blocks the frozen JS fallback for doctor target config files", asy
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /Maximus config file이 있을 때는 Rust runtime이 필요합니다/);
   assert.match(result.stderr, /maximus\.config\.json/);
 });
 
@@ -584,7 +584,7 @@ test("wrapper blocks the frozen JS fallback when config is found through a symli
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /Maximus config file이 있을 때는 Rust runtime이 필요합니다/);
   assert.match(result.stderr, /maximus\.config\.json/);
 });
 
@@ -652,7 +652,7 @@ test("wrapper prefers the real project config over a lexical mount config", asyn
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required when a Maximus config file is present/);
+  assert.match(result.stderr, /Maximus config file이 있을 때는 Rust runtime이 필요합니다/);
   assert.match(result.stderr, /\/real\/maximus\.config\.json/);
   assert.doesNotMatch(result.stderr, /\/mount\/maximus\.config\.json/);
 });
@@ -746,11 +746,11 @@ test("wrapper prints help before checking config files on the frozen JS fallback
   const result = await runWrapper(path.join(rootDir, "bootstrap.mjs"), rootDir, ["--help"]);
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Usage/);
+  assert.match(result.stdout, /사용법/);
   assert.match(result.stdout, /maximus fix \[path\] --dry-run \[--json\]/);
   assert.doesNotMatch(result.stdout, /--only <checks>/);
-  assert.match(result.stdout, /--format.*require the Rust runtime/);
-  assert.match(result.stdout, /require the Rust runtime/);
+  assert.match(result.stdout, /--format.*Rust runtime이 필요/);
+  assert.match(result.stdout, /Rust runtime이 필요/);
   assert.equal(result.stderr.trim(), "");
 });
 
@@ -796,7 +796,7 @@ test("wrapper blocks the frozen JS fallback for fix without dry-run", async (t) 
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout.trim(), "");
-  assert.match(result.stderr, /A Rust runtime is required/);
+  assert.match(result.stderr, /Rust runtime이 필요합니다/);
   assert.match(result.stderr, /fix \(without --dry-run\)/);
 });
 

@@ -65,7 +65,7 @@ export async function runCli(argv = []) {
     return;
   }
 
-  throw new Error(`Unknown command "${command}". Run "maximus help" for usage.`);
+  throw new Error(`알 수 없는 명령 "${command}"입니다. 사용법은 "maximus help"를 실행하세요.`);
 }
 
 function parseArgs(argv) {

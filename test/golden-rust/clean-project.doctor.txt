@@ -1,14 +1,14 @@
 Maximus doctor
-Target: <TARGET>
+대상: <TARGET>
 
-Diagnosis: clean
-Project shape: single package, 1 package(s), 1 config file(s), 0 env folder(s)
+진단: 정상
+프로젝트 구조: 단일 패키지, 패키지 1개, 설정 파일 1개, env 폴더 0개
 
-Prescription
-- No automatic fixes are currently available.
-- No manual follow-up is required right now.
+처방
+- 현재 적용 가능한 자동 수정이 없습니다.
+- 지금은 수동 후속 조치가 필요하지 않습니다.
 
-No config drift detected.
+설정 차이가 감지되지 않았습니다.
 
-Recommended structure
-- Current config surface looks healthy. Keep shared rules centralized as the repo grows.
+권장 구조
+- 현재 설정 표면은 정상입니다. repo가 커져도 shared rule을 중앙에 유지하세요.

@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const cliArgs = process.argv.slice(2);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frozenJsReferenceNote =
-  "Rust is the canonical Maximus runtime. The bundled JS reference is frozen and only kept as a temporary compatibility bridge for legacy-compatible commands.";
+  "Rust가 Maximus의 canonical runtime입니다. 포함된 JS reference는 frozen 상태이며 legacy 호환 명령을 위한 임시 compatibility bridge로만 유지됩니다.";
 
 try {
   const runtime = await resolveRuntime(cliArgs);
@@ -28,7 +28,7 @@ try {
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`Maximus failed: ${message}`);
+  console.error(`Maximus 실패: ${message}`);
   process.exitCode = process.exitCode || 1;
 }
 
@@ -52,7 +52,7 @@ async function resolveRuntime(args) {
   }
   if (fallback.reason) {
     throw new Error(
-      `${fallback.reason} Build the Rust CLI with \`cargo build -p maximus-cli\`, or install a supported native runtime package before using this command.`,
+      `${fallback.reason} 이 명령을 사용하기 전에 \`cargo build -p maximus-cli\`로 Rust CLI를 빌드하거나 지원되는 native runtime package를 설치하세요.`,
     );
   }
 
@@ -109,10 +109,10 @@ function hasGlibcRuntime() {
 
 function formatUnsupportedPlatformMessage() {
   if (process.platform === "linux" && !hasGlibcRuntime()) {
-    return `Linux musl is not supported yet. Maximus currently ships prebuilt Rust binaries only for Linux glibc and macOS. ${frozenJsReferenceNote}`;
+    return `Linux musl은 아직 지원하지 않습니다. Maximus는 현재 Linux glibc와 macOS용 prebuilt Rust binary만 제공합니다. ${frozenJsReferenceNote}`;
   }
 
-  return `Unsupported platform ${process.platform}-${process.arch}. Maximus currently ships prebuilt Rust binaries only for darwin-arm64, darwin-x64, linux-arm64-gnu, and linux-x64-gnu. ${frozenJsReferenceNote}`;
+  return `지원하지 않는 플랫폼입니다: ${process.platform}-${process.arch}. Maximus는 현재 darwin-arm64, darwin-x64, linux-arm64-gnu, linux-x64-gnu용 prebuilt Rust binary만 제공합니다. ${frozenJsReferenceNote}`;
 }
 
 async function resolveInstalledBinary(packageName) {
@@ -168,7 +168,7 @@ async function evaluateFrozenJsFallback(args) {
   if (parsed.unsupportedFlags.length > 0) {
     return {
       allowed: false,
-      reason: `A Rust runtime is required for options not supported by the frozen JS compatibility path: ${parsed.unsupportedFlags.join(", ")}. ${frozenJsReferenceNote}`,
+      reason: `frozen JS compatibility path에서 지원하지 않는 옵션에는 Rust runtime이 필요합니다: ${parsed.unsupportedFlags.join(", ")}. ${frozenJsReferenceNote}`,
     };
   }
 
@@ -176,7 +176,7 @@ async function evaluateFrozenJsFallback(args) {
   if (configPath) {
     return {
       allowed: false,
-      reason: `A Rust runtime is required when a Maximus config file is present (${configPath}). ${frozenJsReferenceNote}`,
+      reason: `Maximus config file이 있을 때는 Rust runtime이 필요합니다 (${configPath}). ${frozenJsReferenceNote}`,
     };
   }
 
@@ -322,10 +322,10 @@ async function isPlaceholderRuntime(binaryPath) {
 
 function formatMissingRuntimeMessage(platformPackage) {
   return [
-    `No Rust runtime is available for ${platformPackage.label}.`,
-    `Expected optional dependency "${platformPackage.packageName}" to be installed or a local Cargo build to exist in target/debug or target/release.`,
+    `${platformPackage.label}에서 사용할 수 있는 Rust runtime이 없습니다.`,
+    `optional dependency "${platformPackage.packageName}"가 설치되어 있거나 target/debug 또는 target/release에 local Cargo build가 있어야 합니다.`,
     frozenJsReferenceNote,
-    "If you are developing inside the repository, build the Rust CLI with `cargo build -p maximus-cli` first.",
+    "repository 안에서 개발 중이라면 먼저 `cargo build -p maximus-cli`로 Rust CLI를 빌드하세요.",
   ].join(" ");
 }
 
@@ -336,7 +336,7 @@ async function runBinary(command, args) {
     });
 
     child.on("error", (error) => {
-      reject(new Error(`Failed to launch Rust CLI at "${command}": ${error.message}`));
+      reject(new Error(`"${command}"에서 Rust CLI를 실행하지 못했습니다: ${error.message}`));
     });
 
     child.on("exit", (code, signal) => {
@@ -362,15 +362,15 @@ function formatCompatHelp() {
   return [
     "Maximus",
     "",
-    "Bring order to chaotic configs.",
+    "혼란스러운 설정을 정리합니다.",
     "",
-    "Usage",
+    "사용법",
     "  maximus audit [path] [--json]",
     "  maximus doctor [path] [--json]",
     "  maximus fix [path] --dry-run [--json]",
     "  maximus help",
     "",
-    "Rust is the canonical Maximus runtime. When no Rust runtime is available, the bundled JS compatibility path stays as frozen reference-only fallback for legacy-compatible commands without Maximus config files or Rust-only flags. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, `--fix-prefix`, `--format`, and `--output` require the Rust runtime, and `fix` is only available with `--dry-run`.",
+    "Rust가 Maximus의 canonical runtime입니다. Rust runtime이 없을 때 포함된 JS compatibility path는 Maximus config file이나 Rust 전용 flag가 없는 legacy 호환 명령을 위한 frozen reference fallback으로만 동작합니다. `--only`, `--skip`, `--fail-on`, `--diff`, `--fix-id`, `--fix-prefix`, `--format`, `--output`에는 Rust runtime이 필요하고, `fix`는 `--dry-run`과 함께 사용할 때만 가능합니다.",
   ].join("\n");
 }
 

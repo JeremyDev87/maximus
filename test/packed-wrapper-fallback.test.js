@@ -39,7 +39,7 @@ test("packed install without the optional runtime blocks config files, Rust-only
   assert.equal(configResult.stdout.trim(), "");
   assert.match(
     configResult.stderr,
-    /A Rust runtime is required when a Maximus config file is present/,
+    /Maximus config file이 있을 때는 Rust runtime이 필요합니다/,
   );
 
   const rustOnlyResult = await runPackedWrapper(installRoot, [
@@ -52,7 +52,7 @@ test("packed install without the optional runtime blocks config files, Rust-only
   assert.equal(rustOnlyResult.stdout.trim(), "");
   assert.match(
     rustOnlyResult.stderr,
-    /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
+    /frozen JS compatibility path에서 지원하지 않는 옵션에는 Rust runtime이 필요합니다/,
   );
   assert.match(rustOnlyResult.stderr, /--only/);
 
@@ -68,7 +68,7 @@ test("packed install without the optional runtime blocks config files, Rust-only
   assert.equal(outputResult.stdout.trim(), "");
   assert.match(
     outputResult.stderr,
-    /A Rust runtime is required for options not supported by the frozen JS compatibility path/,
+    /frozen JS compatibility path에서 지원하지 않는 옵션에는 Rust runtime이 필요합니다/,
   );
   assert.match(outputResult.stderr, /--output/);
   await assert.rejects(access(outputPath));
