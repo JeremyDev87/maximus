@@ -27,8 +27,8 @@ use crate::test_runner_config::run_test_runner_config_check_with_ignore_root;
 use crate::vite_tsconfig_alias::run_vite_tsconfig_alias_check;
 use crate::workspace_config::run_workspace_config_check;
 use crate::{
-    build_structure_report, run_config_duplicate_check, run_env_check_with_options,
-    run_eslint_prettier_check, run_tsconfig_check, EnvCheckOptions,
+    build_structure_report, run_config_duplicate_check, run_eslint_prettier_check,
+    run_tsconfig_check, EnvCheckOptions,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,10 +458,18 @@ pub fn run_env_check_with_config_root_and_options(
         } else {
             discover_project_with_ignore_root(&project.root_dir, &ignored_patterns, ignore_root)?
         };
-        return run_env_check_with_options(&env_project, options);
+        return crate::env::run_env_check_with_missing_concrete_excluded_keys(
+            &env_project,
+            options,
+            &config.env.missing_concrete_excluded_keys(),
+        );
     }
 
-    run_env_check_with_options(project, options)
+    crate::env::run_env_check_with_missing_concrete_excluded_keys(
+        project,
+        options,
+        &config.env.missing_concrete_excluded_keys(),
+    )
 }
 
 fn run_ignore_file_drift_check_registered(

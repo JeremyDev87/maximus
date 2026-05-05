@@ -118,6 +118,10 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
             "only": ["env", "tsconfig"],
             "skip": ["duplicates"]
           },
+          "env": {
+            "ciInjectedKeys": ["GH_COLLECTOR_TOKEN"],
+            "optionalLocalKeys": ["NEXT_PUBLIC_OKTA_DOMAIN"]
+          },
           "ignore": ["dist", "coverage"],
           "ignorePatterns": ["**/*.generated.json"],
           "severity": {
@@ -147,6 +151,21 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
 
     assert_eq!(loaded.config.checks.only, vec!["env", "tsconfig"]);
     assert_eq!(loaded.config.checks.skip, vec!["duplicates"]);
+    assert_eq!(
+        loaded.config.env.ci_injected_keys,
+        vec!["GH_COLLECTOR_TOKEN"]
+    );
+    assert_eq!(
+        loaded.config.env.optional_local_keys,
+        vec!["NEXT_PUBLIC_OKTA_DOMAIN"]
+    );
+    assert_eq!(
+        loaded.config.env.missing_concrete_excluded_keys(),
+        ["GH_COLLECTOR_TOKEN", "NEXT_PUBLIC_OKTA_DOMAIN"]
+            .into_iter()
+            .map(String::from)
+            .collect()
+    );
     assert_eq!(loaded.config.ignore, vec!["dist", "coverage"]);
     assert_eq!(loaded.config.ignore_patterns, vec!["**/*.generated.json"]);
     assert_eq!(
@@ -173,6 +192,29 @@ fn parses_jsonc_shape_for_checks_severity_and_report() {
     assert_eq!(loaded.config.suppressions[1].file_prefix, None);
     assert_eq!(loaded.config.suppressions[1].reason, None);
     assert_eq!(loaded.config.report.fail_on, Some(FailOnLevel::Error));
+}
+
+#[test]
+fn parse_errors_when_unknown_env_config_keys_are_present() {
+    let temp = tempdir().expect("temp dir should exist");
+    let config_path = temp.path().join("maximus.config.json");
+    fs::write(
+        &config_path,
+        r#"
+        {
+          "env": {
+            "ciInjectedKey": ["GH_COLLECTOR_TOKEN"]
+          }
+        }
+        "#,
+    )
+    .expect("config should write");
+
+    let error = load_maximus_config(temp.path()).expect_err("unknown env keys should fail");
+    let rendered = error.to_string();
+
+    assert!(rendered.contains(&config_path.to_string_lossy().to_string()));
+    assert!(rendered.contains("ciInjectedKey"));
 }
 
 #[test]

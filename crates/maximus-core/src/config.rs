@@ -37,6 +37,8 @@ pub struct MaximusConfig {
     #[serde(default)]
     pub checks: CheckFilterConfig,
     #[serde(default)]
+    pub env: EnvConfig,
+    #[serde(default)]
     pub ignore: Vec<String>,
     #[serde(default, rename = "ignorePatterns")]
     pub ignore_patterns: Vec<String>,
@@ -83,6 +85,25 @@ pub struct CheckFilterConfig {
     pub only: Vec<String>,
     #[serde(default)]
     pub skip: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvConfig {
+    #[serde(default, rename = "ciInjectedKeys")]
+    pub ci_injected_keys: Vec<String>,
+    #[serde(default, rename = "optionalLocalKeys")]
+    pub optional_local_keys: Vec<String>,
+}
+
+impl EnvConfig {
+    pub fn missing_concrete_excluded_keys(&self) -> BTreeSet<String> {
+        self.ci_injected_keys
+            .iter()
+            .chain(self.optional_local_keys.iter())
+            .cloned()
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
