@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,8 +10,8 @@ mod env;
 
 use env::{
     render_created_env_example, render_created_env_example_with_sources, render_synced_env_example,
-    render_synced_env_example_with_sources, run_env_check, run_env_check_with_options,
-    EnvCheckOptions,
+    render_synced_env_example_with_sources, run_env_check,
+    run_env_check_with_missing_concrete_excluded_keys, run_env_check_with_options, EnvCheckOptions,
 };
 use maximus_core::{
     apply_fix, discover_project, EnvTemplateRenderOptions, EnvTemplateSourceGroup, FixOperation,
@@ -123,6 +124,62 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
         &format!("env-example:sync:{}", fixture.path().to_string_lossy()),
         "Append missing keys to .env.example",
         &[fixture.path().join(".env.example")],
+    );
+}
+
+#[test]
+fn env_missing_concrete_excludes_configured_exact_keys_only() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join(".env"),
+        "API_URL=https://example.test\n",
+    );
+    write(
+        fixture.path().join(".env.example"),
+        "API_URL=\nGH_COLLECTOR_TOKEN=\nNEXT_PUBLIC_OKTA_DOMAIN=\nVALIDATION_MODE=\nVALIDATION_LABELS=\n",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let default_outcome = run_env_check(&project).expect("default check should run");
+
+    assert_has_finding(
+        &default_outcome.findings,
+        &format!("env-missing-concrete:{}", fixture.path().to_string_lossy()),
+        Severity::Warn,
+        "Declared env contract is not satisfied locally",
+        "No concrete value was found for: GH_COLLECTOR_TOKEN, NEXT_PUBLIC_OKTA_DOMAIN, VALIDATION_MODE, VALIDATION_LABELS.",
+        "If these are injected by CI, keep the contract documented. Otherwise add them to your local env files.",
+        Some(fixture.path().join(".env.example")),
+        false,
+        &[],
+    );
+
+    let excluded_keys = [
+        "GH_COLLECTOR_TOKEN",
+        "NEXT_PUBLIC_OKTA_DOMAIN",
+        "VALIDATION_*",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect::<BTreeSet<_>>();
+    let configured_outcome = run_env_check_with_missing_concrete_excluded_keys(
+        &project,
+        &EnvCheckOptions::default(),
+        &excluded_keys,
+    )
+    .expect("configured check should run");
+
+    assert_has_finding(
+        &configured_outcome.findings,
+        &format!("env-missing-concrete:{}", fixture.path().to_string_lossy()),
+        Severity::Warn,
+        "Declared env contract is not satisfied locally",
+        "No concrete value was found for: VALIDATION_MODE, VALIDATION_LABELS.",
+        "If these are injected by CI, keep the contract documented. Otherwise add them to your local env files.",
+        Some(fixture.path().join(".env.example")),
+        false,
+        &[],
     );
 }
 

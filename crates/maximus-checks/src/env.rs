@@ -27,6 +27,14 @@ pub fn run_env_check_with_options(
     project: &ProjectSnapshot,
     options: &EnvCheckOptions,
 ) -> io::Result<CheckOutcome> {
+    run_env_check_with_missing_concrete_excluded_keys(project, options, &BTreeSet::new())
+}
+
+pub fn run_env_check_with_missing_concrete_excluded_keys(
+    project: &ProjectSnapshot,
+    options: &EnvCheckOptions,
+    missing_concrete_excluded_keys: &BTreeSet<String>,
+) -> io::Result<CheckOutcome> {
     let mut findings = Vec::new();
     let mut fixes = Vec::new();
     let mut planned_fixes = Vec::new();
@@ -312,7 +320,10 @@ pub fn run_env_check_with_options(
                     .parsed
                     .order
                     .iter()
-                    .filter(|key| !provided_keys.contains(*key))
+                    .filter(|key| {
+                        !provided_keys.contains(*key)
+                            && !missing_concrete_excluded_keys.contains(*key)
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
 

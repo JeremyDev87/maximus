@@ -459,6 +459,63 @@ fn config_glob_ignore_and_severity_overrides_are_applied() {
 }
 
 #[test]
+fn config_env_policy_excludes_missing_concrete_keys_from_cli_audit() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(
+        fixture.path().join(".env"),
+        "API_URL=https://example.test\n",
+    );
+    write(
+        fixture.path().join(".env.example"),
+        "API_URL=\nGH_COLLECTOR_TOKEN=\nNEXT_PUBLIC_OKTA_DOMAIN=\nVALIDATION_MODE=\n",
+    );
+    write(fixture.path().join(".gitignore"), ".env\n.env.local\n");
+    write(
+        fixture.path().join("maximus.config.json"),
+        r#"
+        {
+          "checks": { "only": ["env"] },
+          "env": {
+            "ciInjectedKeys": ["GH_COLLECTOR_TOKEN"],
+            "optionalLocalKeys": ["NEXT_PUBLIC_OKTA_DOMAIN"]
+          }
+        }
+        "#,
+    );
+
+    let output = maximus_bin()
+        .args(["audit", fixture.path().to_string_lossy().as_ref(), "--json"])
+        .output()
+        .expect("audit should run");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+
+    let value = parse_json(&output);
+    let findings = value["findings"]
+        .as_array()
+        .expect("findings should be an array");
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "id"
+        ),
+        format!("env-missing-concrete:{}", fixture.path().to_string_lossy())
+    );
+    assert_eq!(
+        finding_field(
+            findings[0]
+                .as_object()
+                .expect("finding should be an object"),
+            "detail"
+        ),
+        "No concrete value was found for: VALIDATION_MODE."
+    );
+}
+
+#[test]
 fn config_suppression_by_exact_finding_id_hides_finding_and_counts_summary() {
     let fixture = TempDir::new().expect("temp dir should exist");
     write_tsconfig_conflict_fixture(fixture.path());
