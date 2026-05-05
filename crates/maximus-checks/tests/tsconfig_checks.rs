@@ -883,6 +883,19 @@ fn tsconfig_pattern_severity_contract_keeps_noop_excludes_non_blocking() {
             .join("noop-node-modules-exclude/src/index.ts"),
         "export const ok = true;\n",
     );
+    write(
+        fixture.path().join("noop-generated-exclude/tsconfig.json"),
+        r#"
+        {
+          "include": ["src/**/*.ts"],
+          "exclude": ["generated/**/*.ts"]
+        }
+        "#,
+    );
+    write(
+        fixture.path().join("noop-generated-exclude/src/index.ts"),
+        "export const ok = true;\n",
+    );
 
     let project = discover_project(fixture.path()).expect("project should discover");
     let outcome = run_tsconfig_check(&project).expect("check should run");
@@ -913,33 +926,48 @@ fn tsconfig_pattern_severity_contract_keeps_noop_excludes_non_blocking() {
             .join("noop-node-modules-exclude/tsconfig.json")
             .to_string_lossy()
     );
+    assert!(
+        outcome
+            .findings
+            .iter()
+            .all(|finding| finding.id != noop_exclude_id),
+        "default node_modules exclude should not report no-op audit noise"
+    );
+
+    let non_default_noop_exclude_id = format!(
+        "tsconfig-patterns:{}:exclude:generated/**/*.ts",
+        fixture
+            .path()
+            .join("noop-generated-exclude/tsconfig.json")
+            .to_string_lossy()
+    );
     assert_has_finding(
         &outcome.findings,
-        &noop_exclude_id,
+        &non_default_noop_exclude_id,
         Severity::Info,
         "Exclude pattern does not filter any included files",
         &format!(
-            "exclude pattern \"node_modules\" removed 0 files from 1 included file(s) under base dir {}.",
+            "exclude pattern \"generated/**/*.ts\" removed 0 files from 1 included file(s) under base dir {}.",
             fixture
                 .path()
-                .join("noop-node-modules-exclude")
+                .join("noop-generated-exclude")
                 .to_string_lossy()
         ),
         "Remove or tighten exclude entries that do not change the effective TypeScript input set.",
         Some(
             fixture
                 .path()
-                .join("noop-node-modules-exclude/tsconfig.json"),
+                .join("noop-generated-exclude/tsconfig.json"),
         ),
     );
 
-    let noop_exclude_finding = outcome
+    let non_default_noop_exclude_finding = outcome
         .findings
         .iter()
-        .find(|finding| finding.id == noop_exclude_id)
-        .expect("no-op node_modules exclude finding should exist");
+        .find(|finding| finding.id == non_default_noop_exclude_id)
+        .expect("non-default no-op exclude finding should exist");
     let summary = summarize_findings(
-        std::slice::from_ref(noop_exclude_finding),
+        std::slice::from_ref(non_default_noop_exclude_finding),
         &outcome.fixes,
         &StructureReport {
             is_monorepo: false,
