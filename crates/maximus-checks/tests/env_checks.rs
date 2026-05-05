@@ -127,6 +127,75 @@ fn env_check_matches_js_findings_for_duplicates_invalid_sync_secret_override_and
 }
 
 #[test]
+fn env_example_secret_warning_uses_key_aware_classifier() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+
+    write(
+        fixture.path().join(".env.example"),
+        "\
+AUTH_TOKEN=github-token
+SUPABASE_SERVICE_KEY=service-role-key
+SUPABASE_SERVICE_ROLE_KEY=service-role-key
+GOOGLE_SERVICE_ACCOUNT_KEY=service-account-key
+PRIVATE_KEY=private-key-value
+SHARED=sk_live_1234567890abcdef
+NEXT_PUBLIC_OKTA_CLIENT_ID=0oa1234567890abcdefghijkl
+VALIDATION_ISSUE_REPO=JeremyDev87/maximus-audit-signal
+VALIDATION_ISSUE_DASHBOARD_URL=https://github.com/JeremyDev87/maximus/issues/107
+VALIDATION_LABELS=enhancement,test,key-aware-env
+WINDOW_START_DATE=2026-05-05
+ERROR_PERCENT=100
+SYNC_HOURS=24
+SERVICE_WORKER_CACHE_KEY=v1
+PLACEHOLDER_TOKEN=change-me
+",
+    );
+
+    let project = discover_project(fixture.path()).expect("project should discover");
+    let outcome = run_env_check(&project).expect("check should run");
+    let env_file = fixture.path().join(".env.example");
+
+    for key in [
+        "AUTH_TOKEN",
+        "SUPABASE_SERVICE_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "GOOGLE_SERVICE_ACCOUNT_KEY",
+        "PRIVATE_KEY",
+        "SHARED",
+    ] {
+        assert_has_finding(
+            &outcome.findings,
+            &format!("env-example-secret:{}:{key}", env_file.to_string_lossy()),
+            Severity::Warn,
+            &format!(".env.example appears to contain a real value for \"{key}\""),
+            "Contract files should describe the interface, not ship concrete secrets.",
+            "Replace the value with a blank or placeholder string before sharing the repo.",
+            Some(env_file.clone()),
+            false,
+            &[],
+        );
+    }
+
+    for key in [
+        "NEXT_PUBLIC_OKTA_CLIENT_ID",
+        "VALIDATION_ISSUE_REPO",
+        "VALIDATION_ISSUE_DASHBOARD_URL",
+        "VALIDATION_LABELS",
+        "WINDOW_START_DATE",
+        "ERROR_PERCENT",
+        "SYNC_HOURS",
+        "SERVICE_WORKER_CACHE_KEY",
+        "PLACEHOLDER_TOKEN",
+    ] {
+        let id = format!("env-example-secret:{}:{key}", env_file.to_string_lossy());
+        assert!(
+            !outcome.findings.iter().any(|finding| finding.id == id),
+            "{key} should not produce env-example-secret"
+        );
+    }
+}
+
+#[test]
 fn env_check_plans_example_creation_when_runtime_env_files_exist_without_contract() {
     let fixture = TempDir::new().expect("temp dir should exist");
 

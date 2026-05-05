@@ -181,7 +181,7 @@ export async function runEnvCheck(project) {
 
       for (const contractRecord of contractRecords) {
         for (const entry of contractRecord.parsed.entries) {
-          if (!looksLikeSecret(entry.value)) {
+          if (!looksLikeSecret(entry.key, entry.value)) {
             continue;
           }
 
