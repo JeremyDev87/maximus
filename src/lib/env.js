@@ -85,7 +85,7 @@ export function isConcreteEnvFileName(name) {
   return /^\.env(?:\..+)?$/u.test(name) && !isTemplateEnvFileName(name);
 }
 
-export function looksLikeSecret(value) {
+export function looksLikeSecret(key, value) {
   if (!value) {
     return false;
   }
@@ -94,11 +94,69 @@ export function looksLikeSecret(value) {
     return false;
   }
 
-  if (/^[A-Za-z0-9/_+=-]{16,}$/u.test(value)) {
+  if (hasHighConfidenceSecretValue(value)) {
     return true;
   }
 
+  return isSecretLikeEnvKey(key);
+}
+
+function hasHighConfidenceSecretValue(value) {
+  return (
+    value.includes("-----BEGIN PRIVATE KEY-----") ||
+    /^(?:sk_live_|sk_test_|ghp_|github_pat_|xox[abp]-)/iu.test(value) ||
+    /^AKIA[A-Z0-9]{16}$/u.test(value) ||
+    /^AIza[A-Za-z0-9_-]{31,}$/u.test(value)
+  );
+}
+
+function isSecretLikeEnvKey(key) {
+  const segments = key
+    .split(/[^A-Za-z0-9]+/u)
+    .filter(Boolean)
+    .map((segment) => segment.toUpperCase());
+
+  if (segments.length === 0) {
+    return false;
+  }
+
+  if (containsAdjacentSegments(segments, "PRIVATE", "KEY") || containsServiceKeySegments(segments)) {
+    return true;
+  }
+
+  if (segments.some((segment) => ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "PWD"].includes(segment))) {
+    return true;
+  }
+
+  if (containsAdjacentSegments(segments, "API", "KEY") || containsAdjacentSegments(segments, "ACCESS", "KEY")) {
+    return !isPublicKeyIdentifier(segments);
+  }
+
   return false;
+}
+
+function containsAdjacentSegments(segments, left, right) {
+  return segments.some((segment, index) => segment === left && segments[index + 1] === right);
+}
+
+function containsServiceKeySegments(segments) {
+  return segments.some((segment, index) => {
+    if (segment !== "SERVICE") {
+      return false;
+    }
+
+    const next = segments[index + 1];
+    const following = segments[index + 2];
+    return next === "KEY" || ((next === "ROLE" || next === "ACCOUNT") && following === "KEY");
+  });
+}
+
+function isPublicKeyIdentifier(segments) {
+  return (
+    containsAdjacentSegments(segments, "PUBLIC", "KEY") ||
+    containsAdjacentSegments(segments, "ANON", "KEY") ||
+    containsAdjacentSegments(segments, "CLIENT", "ID")
+  );
 }
 
 export function parseExactGitignorePatterns(text) {

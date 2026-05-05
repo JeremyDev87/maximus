@@ -273,7 +273,7 @@ pub fn run_env_check_with_options(
 
             for contract_record in &contract_records {
                 for entry in &contract_record.parsed.entries {
-                    if !looks_like_secret(&entry.value) {
+                    if !looks_like_secret(&entry.key, &entry.value) {
                         continue;
                     }
 

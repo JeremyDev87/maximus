@@ -144,9 +144,65 @@ fn env_helpers_match_current_js_behavior() {
     assert!(is_concrete_env_file_name(".env.local"));
     assert!(!is_concrete_env_file_name(".env."));
     assert!(!is_concrete_env_file_name(".env.template"));
-    assert!(looks_like_secret("supersecretvalue12345"));
-    assert!(!looks_like_secret("localhost"));
-    assert!(!looks_like_secret("your-api-key"));
+    assert!(looks_like_secret("AUTH_TOKEN", "supersecretvalue12345"));
+    assert!(!looks_like_secret("AUTH_TOKEN", "localhost"));
+    assert!(!looks_like_secret("AUTH_TOKEN", "your-api-key"));
+}
+
+#[test]
+fn env_secret_helper_is_key_aware() {
+    for (key, value) in [
+        ("AUTH_TOKEN", "github-token"),
+        ("DATABASE_SECRET", "secret-value"),
+        ("SUPABASE_SERVICE_KEY", "service-role-key"),
+        ("SUPABASE_SERVICE_ROLE_KEY", "service-role-key"),
+        ("GOOGLE_SERVICE_ACCOUNT_KEY", "service-account-key"),
+        ("PRIVATE_KEY", "private-key-value"),
+        ("API_KEY", "api-key-value"),
+        ("SHARED", "sk_live_1234567890abcdef"),
+    ] {
+        assert!(
+            looks_like_secret(key, value),
+            "{key}={value} should be treated as a secret-like template value"
+        );
+    }
+
+    for (key, value) in [
+        ("NEXT_PUBLIC_OKTA_CLIENT_ID", "0oa1234567890abcdefghijkl"),
+        ("VALIDATION_ISSUE_REPO", "JeremyDev87/maximus-audit-signal"),
+        (
+            "VALIDATION_ISSUE_DASHBOARD_URL",
+            "https://github.com/JeremyDev87/maximus/issues/107",
+        ),
+        ("VALIDATION_LABELS", "enhancement,test,key-aware-env"),
+        ("WINDOW_START_DATE", "2026-05-05"),
+        ("ERROR_PERCENT", "100"),
+        ("SYNC_HOURS", "24"),
+        ("SUPABASE_ANON_KEY", "supabase-anon-public-key"),
+        ("PUBLIC_KEY", "public-key-identifier"),
+        ("SERVICE_WORKER_CACHE_KEY", "v1"),
+    ] {
+        assert!(
+            !looks_like_secret(key, value),
+            "{key}={value} should be treated as public/config template data"
+        );
+    }
+
+    for placeholder in [
+        "change-me",
+        "placeholder",
+        "your-api-key",
+        "example",
+        "true",
+        "false",
+        "0",
+        "1",
+    ] {
+        assert!(
+            !looks_like_secret("AUTH_TOKEN", placeholder),
+            "{placeholder} should remain a non-warning placeholder"
+        );
+    }
 }
 
 #[test]

@@ -189,7 +189,7 @@ pub fn is_concrete_env_file_name(name: &str) -> bool {
     is_env_file_name(name) && !is_template_env_file_name(name)
 }
 
-pub fn looks_like_secret(value: &str) -> bool {
+pub fn looks_like_secret(key: &str, value: &str) -> bool {
     if value.is_empty() {
         return false;
     }
@@ -198,10 +198,11 @@ pub fn looks_like_secret(value: &str) -> bool {
         return false;
     }
 
-    value.len() >= 16
-        && value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "/_+=-".contains(character))
+    if has_high_confidence_secret_value(value) {
+        return true;
+    }
+
+    is_secret_like_env_key(key)
 }
 
 fn split_env_assignment(line: &str) -> Option<(&str, &str)> {
@@ -278,6 +279,89 @@ fn is_placeholder_value(value: &str) -> bool {
                     .all(|character| character.is_ascii_lowercase() || character == '-')
         })
         .unwrap_or(false)
+}
+
+fn has_high_confidence_secret_value(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+
+    value.contains("-----BEGIN PRIVATE KEY-----")
+        || lower.starts_with("sk_live_")
+        || lower.starts_with("sk_test_")
+        || lower.starts_with("ghp_")
+        || lower.starts_with("github_pat_")
+        || lower.starts_with("xoxb-")
+        || lower.starts_with("xoxp-")
+        || lower.starts_with("xoxa-")
+        || (value.len() == 20
+            && value.starts_with("AKIA")
+            && value
+                .chars()
+                .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit()))
+        || (value.len() >= 35
+            && value.starts_with("AIza")
+            && value
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character)))
+}
+
+fn is_secret_like_env_key(key: &str) -> bool {
+    let segments = env_key_segments(key);
+    if segments.is_empty() {
+        return false;
+    }
+
+    if contains_adjacent_segments(&segments, "PRIVATE", "KEY")
+        || contains_service_key_segments(&segments)
+    {
+        return true;
+    }
+
+    if segments.iter().any(|segment| {
+        matches!(
+            segment.as_str(),
+            "TOKEN" | "SECRET" | "PASSWORD" | "PASSWD" | "PWD"
+        )
+    }) {
+        return true;
+    }
+
+    if contains_adjacent_segments(&segments, "API", "KEY")
+        || contains_adjacent_segments(&segments, "ACCESS", "KEY")
+    {
+        return !is_public_key_identifier(&segments);
+    }
+
+    false
+}
+
+fn env_key_segments(key: &str) -> Vec<String> {
+    key.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_ascii_uppercase())
+        .collect()
+}
+
+fn contains_adjacent_segments(segments: &[String], left: &str, right: &str) -> bool {
+    segments
+        .windows(2)
+        .any(|window| window[0] == left && window[1] == right)
+}
+
+fn contains_service_key_segments(segments: &[String]) -> bool {
+    segments
+        .windows(2)
+        .any(|window| window[0] == "SERVICE" && window[1] == "KEY")
+        || segments.windows(3).any(|window| {
+            window[0] == "SERVICE"
+                && matches!(window[1].as_str(), "ROLE" | "ACCOUNT")
+                && window[2] == "KEY"
+        })
+}
+
+fn is_public_key_identifier(segments: &[String]) -> bool {
+    contains_adjacent_segments(segments, "PUBLIC", "KEY")
+        || contains_adjacent_segments(segments, "ANON", "KEY")
+        || contains_adjacent_segments(segments, "CLIENT", "ID")
 }
 
 fn normalize_env_template_source_group(group: EnvTemplateSourceGroup) -> EnvTemplateSourceGroup {
