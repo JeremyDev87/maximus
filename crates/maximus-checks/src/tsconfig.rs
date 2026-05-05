@@ -1178,6 +1178,10 @@ fn collect_include_exclude_pattern_findings(
             let removed_count = matches.len();
 
             if removed_count == 0 {
+                if is_default_excluded_directory_pattern(pattern) {
+                    continue;
+                }
+
                 findings.push(make_finding(FindingInput {
                     id: format!(
                         "tsconfig-patterns:{}:exclude:{pattern}",
@@ -1244,6 +1248,19 @@ fn package_has_dependency(package_json: &Value, field_name: &str, dependency_nam
 
 fn is_next_generated_types_pattern(pattern: &str) -> bool {
     pattern == ".next/types/**/*.ts" || pattern == "./.next/types/**/*.ts"
+}
+
+fn is_default_excluded_directory_pattern(pattern: &str) -> bool {
+    let normalized = pattern.trim().replace('\\', "/");
+    let normalized = normalized
+        .strip_prefix("./")
+        .unwrap_or(&normalized)
+        .trim_end_matches('/');
+
+    matches!(
+        normalized,
+        "node_modules" | "bower_components" | "jspm_packages"
+    )
 }
 
 fn collect_output_path_overlap_findings(
