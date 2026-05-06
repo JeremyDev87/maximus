@@ -63,6 +63,34 @@ Current MVP auto-fixes:
 - Create `.env.example` from concrete `.env` files
 - Append missing keys to `.env.example`
 
+## Audit Signal Policy
+
+### Env contract
+
+Maximus treats contract files such as `.env.example` as shareable interfaces. The `env-example-secret` warning now considers both the key name and the value shape.
+
+- Keys such as `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_SERVICE_KEY`, `PRIVATE_KEY`, `*_API_KEY`, and `*_ACCESS_KEY` still warn when they contain non-placeholder values.
+- High-confidence secret value shapes still warn regardless of the key name, including `sk_live_`, `sk_test_`, `ghp_`, `github_pat_`, `xoxb-`, `xoxp-`, `xoxa-`, AWS `AKIA...`, Google `AIza...`, and private key blocks.
+- Public or config-like identifiers such as `NEXT_PUBLIC_*_CLIENT_ID`, URLs, repository names, labels, dates, percentages, and hours do not warn only because the value is long.
+- Blank values, `change-me`, `example`, `placeholder`, `your-*`, `localhost`, `127.0.0.1`, `true`, `false`, `0`, and `1` are treated as placeholders.
+
+Env keys that are missing locally but injected by CI or hosting can be declared in `maximus.config.json` or `.maximusrc.json`.
+
+```json
+{
+  "env": {
+    "ciInjectedKeys": ["GH_COLLECTOR_TOKEN"],
+    "optionalLocalKeys": ["NEXT_PUBLIC_OKTA_DOMAIN"]
+  }
+}
+```
+
+Both lists are exact keys excluded from `env-missing-concrete`. There is no glob or prefix matching contract, so write concrete key names instead of patterns such as `VERCEL_*`. Unknown config fields fail parsing instead of being ignored silently.
+
+### TypeScript config
+
+No-op excludes that only repeat TypeScript's default excluded directories, such as `exclude: ["node_modules"]`, are hidden from the default audit output. Non-default excludes that carry project intent, such as `generated/**/*.ts` or `dist/**/*.d.ts`, still produce the existing `Info` finding when they do not remove any included files. Warnings for `include` patterns that match no files are unchanged.
+
 ## Example Output
 
 ```text
