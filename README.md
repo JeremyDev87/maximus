@@ -63,6 +63,34 @@ npx @jeremyfellaz/maximus fix
 - `.env` 기반 `.env.example` 생성
 - `.env.example`에 누락된 키 추가
 
+## Audit Signal 정책
+
+### Env contract
+
+Maximus는 `.env.example` 같은 contract 파일을 공유 가능한 인터페이스로 취급합니다. `env-example-secret` 경고는 이제 key 이름과 value 형태를 함께 봅니다.
+
+- `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_SERVICE_KEY`, `PRIVATE_KEY`, `*_API_KEY`, `*_ACCESS_KEY` 계열 key에 placeholder가 아닌 값이 들어 있으면 계속 경고합니다.
+- `sk_live_`, `sk_test_`, `ghp_`, `github_pat_`, `xoxb-`, `xoxp-`, `xoxa-`, AWS `AKIA...`, Google `AIza...`, private key block처럼 secret 가능성이 높은 value 형태는 key 이름과 관계없이 경고합니다.
+- `NEXT_PUBLIC_*_CLIENT_ID`, URL, repo 이름, label, date, percent, hour처럼 public/config 식별자 성격이 강한 key는 값이 길다는 이유만으로 경고하지 않습니다.
+- 빈 값, `change-me`, `example`, `placeholder`, `your-*`, `localhost`, `127.0.0.1`, `true`, `false`, `0`, `1`은 placeholder로 취급합니다.
+
+로컬에는 없지만 CI나 hosting에서 주입되는 env key는 `maximus.config.json` 또는 `.maximusrc.json`에서 명시할 수 있습니다.
+
+```json
+{
+  "env": {
+    "ciInjectedKeys": ["GH_COLLECTOR_TOKEN"],
+    "optionalLocalKeys": ["NEXT_PUBLIC_OKTA_DOMAIN"]
+  }
+}
+```
+
+두 목록은 `env-missing-concrete`에서 제외할 exact key 목록입니다. Glob나 prefix matching 계약은 없으므로 `VERCEL_*` 같은 패턴 대신 실제 key 이름을 넣으세요. 잘못된 config field는 조용히 무시하지 않고 parse error로 처리됩니다.
+
+### TypeScript config
+
+`exclude: ["node_modules"]`처럼 TypeScript의 기본 제외 디렉터리를 반복하는 no-op exclude는 기본 audit 출력에서 숨깁니다. 반면 `generated/**/*.ts`, `dist/**/*.d.ts`처럼 팀 의도가 담긴 non-default exclude가 실제 included file을 제거하지 못하면 기존처럼 `Info` finding을 유지합니다. `include` pattern이 아무 파일도 매칭하지 않는 경우의 warning도 그대로 유지됩니다.
+
 ## 예시 출력
 
 ```text
