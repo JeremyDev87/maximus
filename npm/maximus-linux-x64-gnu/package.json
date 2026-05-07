@@ -1,6 +1,6 @@
 {
   "name": "@jeremyfellaz/maximus-linux-x64-gnu",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Prebuilt Maximus Rust binary for linux x64 glibc.",
   "license": "MIT",
   "repository": {
