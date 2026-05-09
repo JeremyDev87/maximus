@@ -130,9 +130,9 @@ Default inputs:
 - `command`: `audit`, `doctor`, `fix`
 - `path`: project path to inspect, default `.`
 - `registry-url`: optional npm registry override for pre-release smoke or private registry validation
-- `release-tag`: replace this with a published release tag, for example `v0.1.0`
+- `release-tag`: replace this with a published immutable release tag, for example `v1.0.0`. After the stable major tag passes smoke, `v1` is also valid.
 
-Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication stays in the tag-driven release workflow.
+Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication and major tag promotion stay gated by the tag-driven release workflow and action smoke results.
 <!-- release-docs:end -->
 
 ## Local Development

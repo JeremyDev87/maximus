@@ -1,11 +1,14 @@
 name: release
 
-# Source of truth is the verified release tag itself. Publishing a GitHub Release
-# does not trigger npm publication again; Release Drafter only prepares notes.
+# Source of truth is the verified package release tag itself. Moving major tags
+# such as v1 are consumer pointers only and must not trigger npm publication.
+# Publishing a GitHub Release does not trigger npm publication again; Release
+# Drafter only prepares notes.
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       release_tag:
