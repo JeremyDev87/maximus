@@ -7,6 +7,7 @@ import { access, open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const PLACEHOLDER_MARKER = "MAXIMUS_RUST_BINARY_PLACEHOLDER";
+const EXECUTABLE_PROBE_TIMEOUT_MS = 5000;
 
 export async function assertInstalledNativeRuntime(installRoot) {
   const runtime = await inspectInstalledNativeRuntime(installRoot);
@@ -187,7 +188,7 @@ async function probeExecutable(binaryPath) {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       settle(false);
-    }, 1000);
+    }, EXECUTABLE_PROBE_TIMEOUT_MS);
 
     child.on("error", () => {
       clearTimeout(timeout);

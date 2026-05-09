@@ -14,6 +14,7 @@ const cliArgs = process.argv.slice(2);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frozenJsReferenceNote =
   "Rust가 Maximus의 canonical runtime입니다. 포함된 JS reference는 frozen 상태이며 legacy 호환 명령을 위한 임시 compatibility bridge로만 유지됩니다.";
+const EXECUTABLE_PROBE_TIMEOUT_MS = 5000;
 
 try {
   const runtime = await resolveRuntime(cliArgs);
@@ -404,7 +405,7 @@ async function probeExecutable(binaryPath) {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       settle(false);
-    }, 1000);
+    }, EXECUTABLE_PROBE_TIMEOUT_MS);
 
     child.on("error", () => {
       clearTimeout(timeout);

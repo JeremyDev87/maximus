@@ -26,6 +26,7 @@ const requiredFiles = {
   readmeKo: "README.md",
   readmeEn: "README.en.md",
   marketplaceGuide: "docs/github-action-marketplace.md",
+  npmWrapperRuntime: "docs/npm-wrapper-runtime.md",
   contributing: "CONTRIBUTING.md",
   releaseRunbook: "docs/release-operator-runbook.md",
   releaseContextAssertion: "scripts/assert-release-workflow-context.mjs",
@@ -53,6 +54,7 @@ export async function validateRustReleaseWiring(repoRoot = process.cwd()) {
   validateReleaseDrafterConfig(fileContents.releaseDrafterConfig);
   validateReadmes(fileContents.readmeKo, fileContents.readmeEn);
   validateMarketplaceGuide(fileContents.marketplaceGuide);
+  validateNpmWrapperRuntime(fileContents.npmWrapperRuntime);
   validateContributing(fileContents.contributing);
   validateReleaseRunbook(fileContents.releaseRunbook);
   validateReleaseContextAssertion(fileContents.releaseContextAssertion);
@@ -252,7 +254,8 @@ function validateManualReleaseBumpWorkflow(manualReleaseBumpText) {
 }
 
 function validateReleaseWorkflow(releaseText) {
-  assertContains(releaseText, 'push:\n    tags:\n      - "v*"', "release tag push trigger");
+  assertContains(releaseText, 'Moving major tags', "release major tag non-publish comment");
+  assertContains(releaseText, 'push:\n    tags:\n      - "v[0-9]+.[0-9]+.[0-9]+"\n      - "v[0-9]+.[0-9]+.[0-9]+-*"', "release package tag push trigger");
   assertContains(releaseText, "workflow_dispatch:", "release manual trigger");
   assertContains(releaseText, "release_tag:", "release workflow dispatch tag input");
   assertContains(releaseText, "validate-release-context:", "release context validation job");
@@ -288,6 +291,10 @@ function validateReleaseWorkflow(releaseText) {
   assertContains(releaseText, "- publish-wrapper", "published wrapper smoke ordering");
   assertContains(releaseText, "strategy:\n      fail-fast: false\n      matrix:", "published wrapper smoke matrix");
   assert.ok(
+    !releaseText.includes('- "v*"'),
+    "release workflow should not run for moving major tags like v1",
+  );
+  assert.ok(
     !releaseText.includes("types: [published]"),
     "release workflow should not use release.published as the source of truth",
   );
@@ -305,21 +312,40 @@ function validateReadmes(readmeKoText, readmeEnText) {
   assertContains(readmeKoText, "npx @jeremyfellaz/maximus audit", "Korean README scoped npx example");
   assertContains(readmeKoText, "## GitHub Action", "Korean README action section");
   assertContains(readmeKoText, "uses: JeremyDev87/maximus@<release-tag>", "Korean README action example");
-  assertContains(readmeKoText, "예: `v0.1.0`", "Korean README release tag guidance");
+  assertContains(readmeKoText, "예: `v1.0.0`", "Korean README release tag guidance");
+  assertContains(readmeKoText, "`v1`도 사용할 수 있습니다", "Korean README major tag guidance");
   assertContains(readmeKoText, "release operator runbook", "Korean README runbook link");
   assertContains(readmeKoText, "draft notes", "Korean README draft notes wording");
   assertContains(readmeEnText, "npx @jeremyfellaz/maximus audit", "English README scoped npx example");
   assertContains(readmeEnText, "## GitHub Action", "English README action section");
   assertContains(readmeEnText, "uses: JeremyDev87/maximus@<release-tag>", "English README action example");
-  assertContains(readmeEnText, "for example `v0.1.0`", "English README release tag guidance");
+  assertContains(readmeEnText, "for example `v1.0.0`", "English README release tag guidance");
+  assertContains(readmeEnText, "`v1` is also valid", "English README major tag guidance");
   assertContains(readmeEnText, "release operator runbook", "English README runbook link");
   assertContains(readmeEnText, "draft notes", "English README draft notes wording");
 }
 
 function validateMarketplaceGuide(guideText) {
+  assertContains(guideText, "JeremyDev87/maximus@v1", "marketplace guide root major tag usage");
   assertContains(guideText, "JeremyDev87/maximus/.github/actions/marketplace-wrapper@v1", "marketplace guide subpath usage");
+  assertContains(guideText, "`v1.0.0`", "marketplace guide immutable tag guidance");
+  assertContains(guideText, "`release.yml`은 `v1.0.0` 같은 package release tag만 받습니다", "marketplace guide v1 non-publish contract");
+  assertContains(guideText, "`action-smoke.yml`을 `--ref v1`", "marketplace guide v1 smoke guidance");
   assertContains(guideText, "`registry-url`", "marketplace guide registry input");
   assertContains(guideText, "root `action.yml`", "marketplace guide root action source-of-truth note");
+}
+
+function validateNpmWrapperRuntime(runtimeText) {
+  assertContains(runtimeText, "v1.0.0 native runtime 지원 플랫폼", "npm runtime v1 support heading");
+  assertContains(runtimeText, "Windows", "npm runtime Windows unsupported policy");
+  assertContains(runtimeText, "Linux musl", "npm runtime musl unsupported policy");
+  assertContains(runtimeText, "limited compatibility fallback", "npm runtime fallback wording");
+  assertContains(runtimeText, "fix --dry-run", "npm runtime fix dry-run compatibility");
+  assertContains(runtimeText, "별도 hard cutover 작업", "npm runtime hard cutover split");
+
+  for (const packageName of ["darwin-arm64", "darwin-x64", "linux-arm64-gnu", "linux-x64-gnu"]) {
+    assertContains(runtimeText, packageName, `npm runtime support policy for ${packageName}`);
+  }
 }
 
 function validateContributing(contributingText) {
@@ -348,9 +374,14 @@ function validateReleaseRunbook(releaseRunbookText) {
   assertContains(releaseRunbookText, "## Preflight Before Creating A New Tag", "runbook new-tag preflight section");
   assertContains(releaseRunbookText, "## Preflight Before A Same-Tag Rerun", "runbook rerun preflight section");
   assertContains(releaseRunbookText, 'git switch --detach "$RELEASE_TAG"', "runbook detached tag rerun command");
-  assertContains(releaseRunbookText, 'gh workflow run release.yml --ref v0.2.0 -f release_tag=v0.2.0', "runbook rerun workflow command");
-  assertContains(releaseRunbookText, 'npm view "@jeremyfellaz/maximus@$RELEASE_VERSION" version', "runbook exact root wrapper version check");
-  assertContains(releaseRunbookText, 'npm view "${package}@${RELEASE_VERSION}" version', "runbook exact platform package version check");
+  assertContains(releaseRunbookText, 'gh workflow run release.yml --ref v1.0.0 -f release_tag=v1.0.0', "runbook rerun workflow command");
+  assertContains(releaseRunbookText, 'env npm_config_cache="$NPM_CONFIG_CACHE" npm view "@jeremyfellaz/maximus@$RELEASE_VERSION" version', "runbook exact root wrapper version check");
+  assertContains(releaseRunbookText, 'env npm_config_cache="$NPM_CONFIG_CACHE" npm view "${package}@${RELEASE_VERSION}" version', "runbook exact platform package version check");
+  assertContains(releaseRunbookText, 'env npm_config_cache="$PACK_ROOT/.npm-cache" npm pack --json --pack-destination "$PACK_ROOT"', "runbook temp-cache npm pack command");
+  assertContains(releaseRunbookText, "git tag -f v1 \"$RELEASE_TAG\"", "runbook v1 moving tag command");
+  assertContains(releaseRunbookText, "gh workflow run action-smoke.yml --ref v1 -f release_tag=v1", "runbook v1 action smoke command");
+  assertContains(releaseRunbookText, "Moving `v1` does not trigger the tag-driven release workflow.", "runbook v1 non-publish contract");
+  assertContains(releaseRunbookText, "Windows and Linux musl do not have prebuilt native runtime packages in v1.0.0", "runbook unsupported platform contract");
   assertContains(releaseRunbookText, "Do not validate a same-tag rerun from a newer `master` checkout.", "runbook rerun master warning");
 
   for (const packageName of platformPackages) {
@@ -360,6 +391,7 @@ function validateReleaseRunbook(releaseRunbookText) {
 
 function validateNativeRuntimeAssertion(nativeRuntimeAssertionText) {
   assertContains(nativeRuntimeAssertionText, "MAXIMUS_RUST_BINARY_PLACEHOLDER", "native runtime placeholder marker check");
+  assertContains(nativeRuntimeAssertionText, "EXECUTABLE_PROBE_TIMEOUT_MS = 5000", "native runtime probe timeout");
   assertContains(nativeRuntimeAssertionText, "node_modules", "native runtime node_modules lookup");
   assertContains(nativeRuntimeAssertionText, "Verified native runtime", "native runtime success output");
 }

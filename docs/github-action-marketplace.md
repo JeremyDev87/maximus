@@ -10,7 +10,18 @@
 
 ## 사용 경로
 
-안정 태그를 발행한 뒤에는 다음처럼 wrapper action 경로로 사용할 수 있습니다.
+안정 태그를 발행한 뒤에는 root action 또는 Marketplace wrapper action 경로로 사용할 수 있습니다.
+
+Root action:
+
+```yaml
+- uses: JeremyDev87/maximus@v1
+  with:
+    command: audit
+    path: .
+```
+
+Marketplace wrapper action:
 
 ```yaml
 - uses: JeremyDev87/maximus/.github/actions/marketplace-wrapper@v1
@@ -27,9 +38,12 @@
 
 ## 버전 태그 전략
 
-- stable consumer 예시는 major tag `v1`를 우선으로 안내합니다.
-- 재현 가능한 pinning이 필요하면 `v1.2.3`처럼 immutable release tag를 사용합니다.
-- `v1` 같은 moving major tag는 stable release가 준비된 뒤에만 최신 stable release로 이동합니다.
+- stable consumer 예시는 moving major tag `v1`를 우선으로 안내합니다.
+- 재현 가능한 pinning이 필요하면 `v1.0.0`처럼 immutable release tag를 사용합니다.
+- `v1`은 `v1.0.0` 같은 immutable stable tag publish가 끝난 뒤에만 같은 commit으로 이동합니다.
+- `v1`은 prerelease tag로 이동하지 않습니다.
+- `v1` 이동은 npm publication trigger가 아니며, `release.yml`은 `v1.0.0` 같은 package release tag만 받습니다.
+- `v1` 이동 후에는 `action-smoke.yml`을 `--ref v1`로 실행해서 root action과 marketplace wrapper action을 둘 다 검증합니다.
 
 ## 구현 원칙
 
@@ -40,5 +54,6 @@
 ## 유지보수 체크리스트
 
 - root `action.yml` 입력이 바뀌면 wrapper action 입력도 같은 turn에 동기화합니다.
-- release smoke는 여전히 root action contract와 published tag 기준으로 검증합니다.
+- release smoke는 root action contract, marketplace wrapper contract, published tag 기준으로 검증합니다.
+- `v1` tag 이동은 immutable stable tag publish와 smoke가 끝난 뒤 별도 확인을 받고 수행합니다.
 - README 예시 추가가 필요하면 `README.md` / `README.en.md`를 소유한 별도 lane에서 처리합니다.

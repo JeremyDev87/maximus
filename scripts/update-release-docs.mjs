@@ -9,7 +9,8 @@ const readmePaths = [
 ];
 const markerStart = "<!-- release-docs:start -->";
 const markerEnd = "<!-- release-docs:end -->";
-const exampleReleaseTag = "v0.1.0";
+const exampleReleaseTag = "v1.0.0";
+const majorActionTag = "v1";
 
 const isCheckMode = process.argv.includes("--check");
 
@@ -72,9 +73,9 @@ export function updateReleaseDocs(readmePath, text) {
       "- `command`: `audit`, `doctor`, `fix`",
       "- `path`: 검사할 프로젝트 경로, 기본값 `.`",
       "- `registry-url`: pre-release smoke나 사설 registry 검증이 필요할 때만 쓰는 optional npm registry override",
-      `- \`release-tag\`: publish된 릴리즈 태그를 넣으세요. 예: \`${exampleReleaseTag}\``,
+      `- \`release-tag\`: publish된 immutable 릴리즈 태그를 넣으세요. 예: \`${exampleReleaseTag}\`. 안정 major tag가 smoke를 통과한 뒤에는 \`${majorActionTag}\`도 사용할 수 있습니다.`,
       "",
-      "유지보수자가 실제 alpha/stable 릴리즈를 준비하거나 같은 태그를 안전하게 재실행할 때는 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)을 기준으로 진행합니다. Release Drafter는 `master`에서 draft notes만 갱신하며, 실제 publish는 tag-driven release workflow만 담당합니다.",
+      "유지보수자가 실제 alpha/stable 릴리즈를 준비하거나 같은 태그를 안전하게 재실행할 때는 [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md)을 기준으로 진행합니다. Release Drafter는 `master`에서 draft notes만 갱신하며, 실제 publish와 major tag promotion은 tag-driven release workflow와 action smoke 결과를 기준으로 진행합니다.",
       `${markerEnd}`,
     ].join("\n"),
     "README.en.md": [
@@ -93,9 +94,9 @@ export function updateReleaseDocs(readmePath, text) {
       "- `command`: `audit`, `doctor`, `fix`",
       "- `path`: project path to inspect, default `.`",
       "- `registry-url`: optional npm registry override for pre-release smoke or private registry validation",
-      `- \`release-tag\`: replace this with a published release tag, for example \`${exampleReleaseTag}\``,
+      `- \`release-tag\`: replace this with a published immutable release tag, for example \`${exampleReleaseTag}\`. After the stable major tag passes smoke, \`${majorActionTag}\` is also valid.`,
       "",
-      "Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication stays in the tag-driven release workflow.",
+      "Maintainers should use the [release operator runbook](https://github.com/JeremyDev87/maximus/blob/master/docs/release-operator-runbook.md) for alpha or stable releases and same-tag reruns. Release Drafter only refreshes draft notes on `master`; actual publication and major tag promotion stay gated by the tag-driven release workflow and action smoke results.",
       `${markerEnd}`,
     ].join("\n"),
   };
