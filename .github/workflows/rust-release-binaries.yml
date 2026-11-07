@@ -34,7 +34,7 @@ jobs:
           - runner: macos-15-intel
             package_dir: maximus-darwin-x64
             package_name: "@jeremyfellaz/maximus-darwin-x64"
-          - runner: macos-14
+          - runner: macos-15
             package_dir: maximus-darwin-arm64
             package_name: "@jeremyfellaz/maximus-darwin-arm64"
 
