@@ -90,6 +90,9 @@ jobs:
       - name: Run Rust core tests
         run: cargo test -p maximus-core
 
+      - name: Run Rust checker tests
+        run: cargo test -p maximus-checks
+
       - name: Run Rust CLI tests
         run: cargo test -p maximus-cli
 

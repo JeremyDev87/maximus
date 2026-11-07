@@ -26,6 +26,7 @@ pub fn run_vite_tsconfig_alias_check(project: &ProjectSnapshot) -> io::Result<Ch
         let Some(vite_aliases) = parse_vite_aliases(&vite_text, &vite_file.path) else {
             continue;
         };
+        let native_paths = native_tsconfig_paths_confirmed(&vite_text);
 
         let tsconfig_aliases = if let Some(tsconfig_file) = tsconfig_file {
             let Some(tsconfig_aliases) = read_effective_tsconfig_aliases(&tsconfig_file.path)?
@@ -87,6 +88,7 @@ pub fn run_vite_tsconfig_alias_check(project: &ProjectSnapshot) -> io::Result<Ch
                     ),
                     severity: Some(Severity::Info),
                 })),
+                (None, Some(_)) if native_paths => {}
                 (None, Some(tsconfig_target)) => findings.push(make_finding(FindingInput {
                     id: format!(
                         "vite-alias-sync:{}:{}:tsconfig-only",
@@ -139,8 +141,12 @@ fn vite_config_file_for_directory(
 
 fn parse_vite_aliases(text: &str, config_path: &Path) -> Option<BTreeMap<String, String>> {
     let config_object_start = find_vite_config_object_start(text)?;
-    let Some(resolve_value_start) =
-        find_object_property_value_start(text, config_object_start, "resolve")?
+    let Some(resolve_value_start) = find_object_property_value_start(
+        text,
+        config_object_start,
+        "resolve",
+        PropertyLookup::First,
+    )?
     else {
         return Some(BTreeMap::new());
     };
@@ -149,7 +155,12 @@ fn parse_vite_aliases(text: &str, config_path: &Path) -> Option<BTreeMap<String,
         return None;
     };
 
-    let Some(value_start) = find_object_property_value_start(text, resolve_value_start, "alias")?
+    let Some(value_start) = find_object_property_value_start(
+        text,
+        resolve_value_start,
+        "alias",
+        PropertyLookup::First,
+    )?
     else {
         return Some(BTreeMap::new());
     };
@@ -161,8 +172,56 @@ fn parse_vite_aliases(text: &str, config_path: &Path) -> Option<BTreeMap<String,
     }
 }
 
+fn native_tsconfig_paths_confirmed(text: &str) -> bool {
+    let Some(mut cursor) = find_export_default_value_start(text, false) else {
+        return false;
+    };
+    let wrapped = text[cursor..].starts_with("defineConfig");
+    if wrapped {
+        cursor = skip_ws_and_comments(text, cursor + "defineConfig".len());
+        if !text[cursor..].starts_with('(') {
+            return false;
+        }
+        cursor = skip_ws_and_comments(text, cursor + 1);
+    }
+    if !text[cursor..].starts_with('{') {
+        return false;
+    }
+    let Some(object_end) = find_matching_brace(text, cursor) else {
+        return false;
+    };
+    let mut end = skip_ws_and_comments(text, object_end + 1);
+    if wrapped {
+        if !text[end..].starts_with(')') {
+            return false;
+        }
+        end = skip_ws_and_comments(text, end + 1);
+    }
+    if end != text.len() && !text[end..].starts_with(';') {
+        return false;
+    }
+    let Some(Some(resolve)) =
+        find_object_property_value_start(text, cursor, "resolve", PropertyLookup::Unique)
+    else {
+        return false;
+    };
+    if !text[resolve..].starts_with('{') {
+        return false;
+    }
+    let Some(Some(value)) =
+        find_object_property_value_start(text, resolve, "tsconfigPaths", PropertyLookup::Unique)
+    else {
+        return false;
+    };
+    if !text[value..].starts_with("true") {
+        return false;
+    }
+    let end = skip_ws_and_comments(text, value + "true".len());
+    matches!(text[end..].chars().next(), Some(',' | '}'))
+}
+
 fn find_vite_config_object_start(text: &str) -> Option<usize> {
-    let mut cursor = find_export_default_value_start(text)?;
+    let mut cursor = find_export_default_value_start(text, true)?;
 
     if text[cursor..].starts_with("defineConfig") {
         cursor += "defineConfig".len();
@@ -281,7 +340,7 @@ fn find_top_level_arrow(text: &str, mut cursor: usize, limit: usize) -> Option<u
     None
 }
 
-fn find_export_default_value_start(text: &str) -> Option<usize> {
+fn find_export_default_value_start(text: &str, allow_ambiguous_slash: bool) -> Option<usize> {
     let mut index = 0;
 
     while index < text.len() {
@@ -320,6 +379,8 @@ fn find_export_default_value_start(text: &str) -> Option<usize> {
                 }
                 continue;
             }
+            // A slash outside comments may begin a regex containing a fake export.
+            '/' if !allow_ambiguous_slash => return None,
             _ => {}
         }
 
@@ -337,7 +398,7 @@ fn find_export_default_value_start(text: &str) -> Option<usize> {
 }
 
 fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
-    if index + keyword.len() > text.len() || &text[index..index + keyword.len()] != keyword {
+    if !text[index..].starts_with(keyword) {
         return false;
     }
     if index > 0 && is_identifier_char(text.as_bytes()[index - 1] as char) {
@@ -355,13 +416,20 @@ fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
     true
 }
 
+enum PropertyLookup {
+    First,
+    Unique,
+}
+
 fn find_object_property_value_start(
     text: &str,
     object_start: usize,
     property: &str,
+    lookup: PropertyLookup,
 ) -> Option<Option<usize>> {
     let object_end = find_matching_delimiter(text, object_start, '{', '}')?;
     let mut cursor = object_start + 1;
+    let mut found = None;
 
     while cursor < object_end {
         cursor = skip_ws_and_comments(text, cursor);
@@ -369,24 +437,55 @@ fn find_object_property_value_start(
             break;
         }
         if text[cursor..].starts_with(',') {
+            if matches!(lookup, PropertyLookup::Unique) {
+                return None;
+            }
             cursor += 1;
             continue;
         }
 
         let (key, next_cursor) = parse_string_or_identifier(text, cursor)?;
+        if matches!(lookup, PropertyLookup::Unique) && text[cursor..next_cursor].contains('\\') {
+            return None;
+        }
         let mut value_cursor = skip_ws_and_comments(text, next_cursor);
         let Some(':') = text[value_cursor..].chars().next() else {
             return None;
         };
         value_cursor = skip_ws_and_comments(text, value_cursor + 1);
         if key == property {
-            return Some(Some(value_cursor));
+            match lookup {
+                PropertyLookup::First => return Some(Some(value_cursor)),
+                PropertyLookup::Unique => {
+                    if found.replace(value_cursor).is_some() {
+                        return None;
+                    }
+                }
+            }
         }
 
-        cursor = skip_value(text, value_cursor, object_end)?;
+        cursor = match lookup {
+            PropertyLookup::First => skip_value(text, value_cursor, object_end)?,
+            PropertyLookup::Unique => {
+                let end = match text[value_cursor..].chars().next()? {
+                    '{' | '[' | '(' | '\'' | '"' | '`' => {
+                        skip_value(text, value_cursor, object_end)?
+                    }
+                    _ => parse_identifier(text, value_cursor)?.1,
+                };
+                let end = skip_ws_and_comments(text, end);
+                if end == object_end {
+                    end
+                } else if end < object_end && text[end..].starts_with(',') {
+                    end + 1
+                } else {
+                    return None;
+                }
+            }
+        };
     }
 
-    Some(None)
+    Some(found)
 }
 
 fn parse_alias_array(
