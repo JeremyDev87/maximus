@@ -309,6 +309,99 @@ fn vite_tsconfig_alias_check_reads_resolve_alias_only() {
     );
 }
 
+#[test]
+fn native_tsconfig_paths_handles_literal_and_uncertain_configs() {
+    let cases = [
+        ("literal", "export default { resolve: { tsconfigPaths: true } }", None),
+        ("defineConfig", "export default defineConfig({ resolve: { tsconfigPaths: true } });", None),
+        ("quoted comments", "/* 한국어 */ export default { 'resolve': { alias: {}, 'tsconfigPaths': true /* 참 */ } }", None),
+        ("false", "export default { resolve: { tsconfigPaths: false } }", Some(Severity::Info)),
+        ("missing", "export default {}", Some(Severity::Info)),
+        ("variable", "export default { resolve: { tsconfigPaths: enabled } }", Some(Severity::Info)),
+        ("call", "export default { resolve: { tsconfigPaths: enabled() } }", Some(Severity::Info)),
+        ("conditional", "export default { resolve: { tsconfigPaths: enabled ? true : false } }", Some(Severity::Info)),
+        ("string", "export default { resolve: { tsconfigPaths: 'true' } }", Some(Severity::Info)),
+        ("prefix", "export default { resolve: { tsconfigPaths: trueValue } }", Some(Severity::Info)),
+        ("expression", "export default { resolve: { tsconfigPaths: true && false } }", Some(Severity::Info)),
+        ("comment expression", "export default { resolve: { alias: {}, tsconfigPaths: true /* comment */ || false } }", Some(Severity::Info)),
+        ("missing comma", "export default { resolve: { alias: {}, tsconfigPaths: true other: false } }", Some(Severity::Info)),
+        ("fake scopes", "const note = 'resolve: { tsconfigPaths: true }'; export default { other: { tsconfigPaths: true }, resolve: { /* tsconfigPaths: true */ alias: {} } }", Some(Severity::Info)),
+        ("resolve duplicate", "export default { resolve: { tsconfigPaths: true }, resolve: {} }", Some(Severity::Info)),
+        ("native duplicate", "export default { resolve: { alias: {}, tsconfigPaths: true, tsconfigPaths: false } }", Some(Severity::Info)),
+        ("regex fake export", "const pattern = /export default { resolve: { tsconfigPaths: true } };/; export default { resolve: { tsconfigPaths: false } };", Some(Severity::Info)),
+        ("regex closing comment", "const pattern = /export default { resolve: { tsconfigPaths: true } };/// comment", Some(Severity::Info)),
+        ("division prefix uncertain", "const ratio = 4 / 2; export default { resolve: { tsconfigPaths: true } };", Some(Severity::Info)),
+        ("comment prefix", "// /export default { resolve: { tsconfigPaths: false } }/\n/* / */ export default { resolve: { tsconfigPaths: true } };", None),
+        ("escaped native duplicate", r"export default { resolve: { tsconfigPaths: true, 'tsconfig\u0050aths': false } }", Some(Severity::Info)),
+        ("escaped resolve duplicate", r"export default { resolve: { tsconfigPaths: true }, 'res\u006flve': { tsconfigPaths: false } }", Some(Severity::Info)),
+        ("root spread", "export default { resolve: { tsconfigPaths: true }, ...other }", Some(Severity::Info)),
+        ("leading root spread", "export default { ...other, resolve: { tsconfigPaths: true } }", None),
+        ("resolve spread", "export default { resolve: { alias: {}, tsconfigPaths: true, ...other } }", Some(Severity::Info)),
+        ("root computed", "export default { resolve: { tsconfigPaths: true }, [key]: other }", Some(Severity::Info)),
+        ("resolve computed", "export default { resolve: { alias: {}, tsconfigPaths: true, [key]: false } }", Some(Severity::Info)),
+        ("root shorthand", "export default { resolve: { tsconfigPaths: true }, other }", Some(Severity::Info)),
+        ("resolve shorthand", "export default { resolve: { alias: {}, tsconfigPaths: true, other } }", Some(Severity::Info)),
+        ("root method", "export default { resolve: { tsconfigPaths: true }, other() {} }", Some(Severity::Info)),
+        ("resolve method", "export default { resolve: { alias: {}, tsconfigPaths: true, other() {} } }", Some(Severity::Info)),
+        ("callback", "export default defineConfig(() => ({ resolve: { tsconfigPaths: true } }))", Some(Severity::Info)),
+        ("callback block", "export default defineConfig(() => { return { resolve: { tsconfigPaths: true } }; })", Some(Severity::Info)),
+        ("conditional config", "export default { resolve: { tsconfigPaths: true } } || other", Some(Severity::Info)),
+        ("conditional resolve", "export default { resolve: { tsconfigPaths: true } || other }", Some(Severity::Info)),
+        ("extra argument", "export default defineConfig({ resolve: { tsconfigPaths: true } }, other)", Some(Severity::Info)),
+        ("wrapper", "export default wrapper({ resolve: { tsconfigPaths: true } })", None),
+        ("variable config", "const config = { resolve: { tsconfigPaths: true } }; export default config", None),
+        ("malformed", "export default { resolve: { tsconfigPaths: true", None),
+        ("truncated comment", "export default { resolve: { tsconfigPaths: true /*", None),
+        ("utf8 text", "const note = '한글 문자열'; export default { resolve: { tsconfigPaths: true } }", None),
+        ("mismatch", "export default { resolve: { alias: { '@app': './wrong' }, tsconfigPaths: true } }", Some(Severity::Warn)),
+        ("regex prefix legacy mismatch", "const pattern = /foo/; export default { resolve: { alias: { '@app': './wrong' }, tsconfigPaths: true } };", Some(Severity::Warn)),
+        ("escaped key legacy mismatch", r"export default { 'res\olve': { alias: { '@app': './wrong' }, tsconfigPaths: true } }", Some(Severity::Warn)),
+        ("mismatch root spread", "export default { resolve: { alias: { '@app': './wrong' }, tsconfigPaths: true }, ...other }", Some(Severity::Warn)),
+        ("mismatch resolve spread", "export default { resolve: { alias: { '@app': './wrong' }, tsconfigPaths: true, ...other } }", Some(Severity::Warn)),
+        ("callback mismatch", "export default defineConfig(() => ({ resolve: { alias: { '@app': './wrong' }, tsconfigPaths: true } }))", Some(Severity::Warn)),
+        ("match", "export default { resolve: { alias: { '@app': './src' }, tsconfigPaths: true } }", None),
+        ("vite only", "export default { resolve: { alias: { '@other': './other' }, tsconfigPaths: true } }", Some(Severity::Info)),
+    ];
+    for (name, config, expected) in cases {
+        let fixture = tempfile::TempDir::new().expect("temp dir should exist");
+        let root = fixture.path();
+        std::fs::write(root.join("package.json"), "{}").expect("package should write");
+        std::fs::write(
+            root.join("base.json"),
+            r#"{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}"#,
+        )
+        .expect("base should write");
+        std::fs::write(root.join("tsconfig.json"), r#"{"extends":"./base.json"}"#)
+            .expect("tsconfig should write");
+        std::fs::write(root.join("vite.config.mjs"), config).expect("Vite config should write");
+        let project = discover_project(root).expect("project should discover");
+        let outcome = run_vite_tsconfig_alias_check(&project).expect("check should run");
+        assert_eq!(
+            outcome.findings.len(),
+            usize::from(expected.is_some()),
+            "{name}: {:?}",
+            outcome.findings
+        );
+        if let Some(severity) = expected {
+            let finding = &outcome.findings[0];
+            assert_eq!(finding.severity, severity, "{name}");
+            assert!(!finding.fixable, "{name}");
+            assert_eq!(finding.category, "vite-tsconfig-alias", "{name}");
+            assert!(finding.id.starts_with("vite-alias-sync:"), "{name}");
+            if severity == Severity::Info {
+                assert!(
+                    finding.id.ends_with(if name == "vite only" {
+                        ":vite-only"
+                    } else {
+                        ":tsconfig-only"
+                    }),
+                    "{name}"
+                );
+            }
+        }
+    }
+}
+
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test/fixtures/vite-tsconfig-alias-sync")

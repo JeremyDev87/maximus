@@ -1810,16 +1810,16 @@ fn cli_filters_do_not_hide_invalid_config_check_ids() {
     write_mixed_fixture(fixture.path());
 
     for (config_body, cli_args, expected_fragment) in [
-            (
-                r#"{ "checks": { "only": ["not-a-real-check"] } }"#,
-                vec!["--skip", "env"],
-                "only에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
-            ),
-            (
-                r#"{ "checks": { "skip": ["not-a-real-check"] } }"#,
-                vec!["--only", "env"],
-                "skip에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
-            ),
+        (
+            r#"{ "checks": { "only": ["not-a-real-check"] } }"#,
+            vec!["--skip", "env"],
+            "only에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
+        ),
+        (
+            r#"{ "checks": { "skip": ["not-a-real-check"] } }"#,
+            vec!["--only", "env"],
+            "skip에 알 수 없는 check id \"not-a-real-check\"가 있습니다.",
+        ),
     ] {
         write(fixture.path().join("maximus.config.json"), config_body);
 
@@ -1832,6 +1832,146 @@ fn cli_filters_do_not_hide_invalid_config_check_ids() {
         assert_eq!(output.status.code(), Some(2), "{output:?}");
         let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
         assert!(stderr.contains(expected_fragment), "{stderr}");
+    }
+}
+
+#[test]
+fn native_tsconfig_paths_preserves_cli_contract() {
+    for (config, severity) in [
+        ("export default { resolve: { tsconfigPaths: true } }", None),
+        (
+            "export default { resolve: { tsconfigPaths: false } }",
+            Some("info"),
+        ),
+        (
+            "export default { resolve: { tsconfigPaths: enabled } }",
+            Some("info"),
+        ),
+        (
+            "const pattern = /export default { resolve: { tsconfigPaths: true } };/; export default { resolve: { tsconfigPaths: false } };",
+            Some("info"),
+        ),
+        (
+            "const pattern = /export default { resolve: { tsconfigPaths: true } };/// comment",
+            Some("info"),
+        ),
+        (
+            r"export default { resolve: { tsconfigPaths: true, 'tsconfig\u0050aths': false } }",
+            Some("info"),
+        ),
+        (
+            r"export default { resolve: { tsconfigPaths: true }, 'res\u006flve': { tsconfigPaths: false } }",
+            Some("info"),
+        ),
+        (
+            "export default { resolve: { tsconfigPaths: true, alias: { '@app': './wrong' } } }",
+            Some("warn"),
+        ),
+    ] {
+        let fixture = TempDir::new().expect("temp dir should exist");
+        write(fixture.path().join("package.json"), "{}");
+        let tsconfig = r#"{"compilerOptions":{"paths":{"@app/*":["src/*"]}}}"#;
+        write(fixture.path().join("tsconfig.json"), tsconfig);
+        write(fixture.path().join("vite.config.mjs"), config);
+        for fail_on_info in [false, true] {
+            let mut command = maximus_bin();
+            command.args([
+                "audit",
+                fixture.path().to_str().expect("UTF-8 path"),
+                "--only",
+                "vite-tsconfig-alias",
+                "--json",
+            ]);
+            if fail_on_info {
+                command.args(["--fail-on", "info"]);
+            }
+            let output = command.output().expect("audit should run");
+            let expected_exit =
+                i32::from(severity == Some("warn") || (severity.is_some() && fail_on_info));
+            assert_eq!(
+                output.status.code(),
+                Some(expected_exit),
+                "{config}: {output:?}"
+            );
+            let value = parse_json(&output);
+            assert_eq!(value["schemaVersion"], "1");
+            assert_eq!(value["generator"], "maximus");
+            let findings = value["findings"].as_array().expect("findings array");
+            assert_eq!(findings.len(), usize::from(severity.is_some()), "{config}");
+            if let Some(severity) = severity {
+                let finding = &findings[0];
+                assert_eq!(finding["severity"], severity);
+                assert_eq!(finding["category"], "vite-tsconfig-alias");
+                assert_eq!(finding["fixable"], false);
+                let (file, suffix) = if severity == "info" {
+                    ("tsconfig.json", ":tsconfig-only")
+                } else {
+                    ("vite.config.mjs", "")
+                };
+                assert_eq!(
+                    finding["id"],
+                    format!(
+                        "vite-alias-sync:{}:@app{suffix}",
+                        fixture.path().join(file).display()
+                    )
+                );
+            }
+            assert_eq!(
+                fs::read_to_string(fixture.path().join("vite.config.mjs"))
+                    .expect("config should read"),
+                config
+            );
+            assert_eq!(
+                fs::read_to_string(fixture.path().join("tsconfig.json"))
+                    .expect("tsconfig should read"),
+                tsconfig
+            );
+        }
+    }
+}
+
+#[test]
+fn native_tsconfig_paths_does_not_execute_config() {
+    let fixture = TempDir::new().expect("temp dir should exist");
+    write(fixture.path().join("package.json"), "{}");
+    let tsconfig = r#"{"compilerOptions":{"paths":{"@app/*":["src/*"]}}}"#;
+    write(fixture.path().join("tsconfig.json"), tsconfig);
+    for native in ["true", "false"] {
+        let config = format!("import {{ writeFileSync }} from 'node:fs';\nwriteFileSync(new URL('./EXECUTED', import.meta.url), 'executed');\nthrow new Error('must not execute');\nexport default {{ resolve: {{ tsconfigPaths: {native} }} }};");
+        write(fixture.path().join("vite.config.mjs"), &config);
+        let output = maximus_bin()
+            .args([
+                "audit",
+                fixture.path().to_str().expect("UTF-8 path"),
+                "--only",
+                "vite-tsconfig-alias",
+                "--json",
+                "--fail-on",
+                "info",
+            ])
+            .output()
+            .expect("audit should run");
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(native == "false")),
+            "{output:?}"
+        );
+        let value = parse_json(&output);
+        assert_eq!(
+            value["findings"].as_array().expect("findings array").len(),
+            usize::from(native == "false")
+        );
+        assert!(!fixture.path().join("EXECUTED").exists());
+        for (file, original) in [
+            ("package.json", "{}"),
+            ("tsconfig.json", tsconfig),
+            ("vite.config.mjs", config.as_str()),
+        ] {
+            assert_eq!(
+                fs::read_to_string(fixture.path().join(file)).expect("input should read"),
+                original
+            );
+        }
     }
 }
 
