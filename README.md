@@ -14,7 +14,7 @@
 
 Maximus는 프로젝트 곳곳에 흩어진 설정 파일을 점검하고, 충돌과 중복을 정리하며 질서 있는 개발환경을 만드는 CLI입니다.
 
-현대 프로젝트는 `tsconfig`, `eslint`, `prettier`, `vite`, `jest`, `next.config`, `.env` 등 수많은 설정 위에 서 있습니다. Maximus는 무너진 질서를 다시 세웁니다.
+예를 들어 Vite alias와 TypeScript `paths`가 서로 다른 경로를 가리킬 때, Maximus는 그 차이를 알려줍니다. 설정을 직접 고친 뒤 진단과 실제 빌드를 다시 확인할 수 있습니다.
 
 ## Canonical Runtime
 
@@ -22,7 +22,7 @@ Maximus는 이제 Rust runtime을 canonical implementation으로 사용합니다
 
 - 루트 `@jeremyfellaz/maximus` npm package는 thin launcher이며, 실제 실행은 플랫폼별 prebuilt Rust binary로 위임합니다.
 - publish된 npm wrapper와 GitHub Action도 같은 Rust runtime 경로를 기준으로 동작합니다.
-- publish된 npm 진입점은 `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor`, `npx @jeremyfellaz/maximus fix`이며, 설치 후 실행되는 binary 이름은 계속 `maximus`입니다.
+- publish된 npm 진입점은 `npx @jeremyfellaz/maximus@0.1.4 audit`, `npx @jeremyfellaz/maximus@0.1.4 doctor`, `npx @jeremyfellaz/maximus@0.1.4 fix`이며, 설치 후 실행되는 binary 이름은 계속 `maximus`입니다.
 - 저장소의 `src/**/*.js`는 parity 검증과 reference 비교를 위한 frozen reference로 남아 있습니다. native Rust runtime이 없을 때는 제한된 compatibility fallback으로만 남아 있으며, 새 runtime 기능이나 배포 동작의 기본 구현 표면으로 취급하지 않습니다. `maximus.config.json` 자동 로딩이나 `--only` 같은 Rust 전용 기능에는 canonical runtime인 Rust가 필요합니다.
 - historical rewrite planning notes는 maintainer workflow 안에 남아 있을 수 있지만, 공개 contributor guidance는 `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md`, `docs/architecture/checker-authoring.md` 같은 tracked repo 문서를 기준으로 따라야 합니다.
 
@@ -40,11 +40,15 @@ Maximus는 이제 Rust runtime을 canonical implementation으로 사용합니다
 
 ## 명령어
 
+아래 공개 설치 예시는 macOS arm64에서 확인한 npm `0.1.4`입니다. wrapper는 Node.js >=20이 필요하며, prebuilt native 대상은 macOS와 Linux glibc의 arm64/x64입니다. Windows와 Linux musl은 prebuilt native 지원 대상이 아닙니다. native가 없으면 Maximus 설정 파일과 Rust 전용 옵션을 사용하지 않는 기본 `audit`, `doctor`, `fix --dry-run`만 제한된 JS fallback으로 실행할 수 있습니다. 아래 데모에는 native가 필요합니다.
+
 ```bash
-npx @jeremyfellaz/maximus audit
-npx @jeremyfellaz/maximus doctor
-npx @jeremyfellaz/maximus fix
+npx @jeremyfellaz/maximus@0.1.4 audit
+npx @jeremyfellaz/maximus@0.1.4 doctor
+npx @jeremyfellaz/maximus@0.1.4 fix
 ```
+
+공개 최신 버전으로 현재 프로젝트를 검사하려면 `npx @jeremyfellaz/maximus audit`를 사용하세요. 위의 `@0.1.4` 예시는 검증한 버전을 재현하기 위한 고정 명령입니다.
 
 ### `audit`
 
@@ -91,27 +95,23 @@ Maximus는 `.env.example` 같은 contract 파일을 공유 가능한 인터페�
 
 `exclude: ["node_modules"]`처럼 TypeScript의 기본 제외 디렉터리를 반복하는 no-op exclude는 기본 audit 출력에서 숨깁니다. 반면 `generated/**/*.ts`, `dist/**/*.d.ts`처럼 팀 의도가 담긴 non-default exclude가 실제 included file을 제거하지 못하면 기존처럼 `Info` finding을 유지합니다. `include` pattern이 아무 파일도 매칭하지 않는 경우의 warning도 그대로 유지됩니다.
 
-## 예시 출력
+## Vite alias 데모
 
-```text
-Maximus audit
-대상: /workspace/my-app
+아래 결과는 `cargo build -p maximus-cli`로 빌드하고 `target/debug/maximus`로 실행한 **로컬 미배포 수정 후보** 기준입니다. 공개 `0.1.4`나 `npx` latest에 이 수정이 배포되었다는 뜻은 아닙니다. Node.js 24와 Vite 8.3.5를 사용하는 [임시 프로젝트 재현 절차](CONTRIBUTING.md#vite-alias-reproduction)를 복사해 실행할 수 있습니다.
 
-상태: 조치 필요
-발견 항목: 오류 1개, 경고 2개, 정보 1개
-적용 가능한 수정: 1개
+재현 절차는 TypeScript의 `@/*`가 `src/*`를 가리키는 임시 프로젝트를 만들고, 각 설정에서 다음 명령으로 검사합니다.
 
-발견 항목
-- [오류] 경로 alias 대상이 존재하지 않음
-  파일: packages/web/tsconfig.json
-  상세: @ui/*는 src/missing/*를 가리키지만 해석된 경로를 찾을 수 없습니다.
-  힌트: editor와 build 해석을 깨기 전에 오래된 alias를 수정하거나 제거하세요.
-
-- [경고] .env.example 계약 파일 누락
-  파일: .env
-  상세: 실행 env 파일은 있지만 .env.example이 없습니다.
-  힌트: `maximus fix`를 실행해 빈 계약 파일을 생성하세요.
+```bash
+target/debug/maximus audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info
 ```
+
+| 설정 | 필터링한 진단 / 종료 코드 | Vite 빌드 종료 코드 |
+| --- | --- | --- |
+| Vite `@`가 존재하지 않는 절대 경로를 가리킴 | `warn`: `Vite alias "@" differs from tsconfig paths` / 1 | 1 (import를 읽지 못함) |
+| Vite `@`를 실제 `src`의 절대 경로로 수동 수정 | 진단 없음 / 0 | 0 |
+| alias를 제거하고 `resolve: { tsconfigPaths: true }` 지정 | 불필요한 tsconfig-only 진단 없음 / 0 | 0 |
+
+alias 자동 수정은 지원하지 않으며, `fix` 범위는 위의 env 예시와 같습니다. 후보는 직접 export한 객체 또는 `defineConfig({ ... })`의 literal `true`만 확인합니다. 동적 값, callback, plugin, 모호한 key/spread는 확인하지 않습니다. 선언된 설정을 점검할 뿐 모든 import나 설치된 Vite 버전의 동작을 인증하지 않습니다. 같은 데모에서 `tsconfigPaths: false`는 `info`와 audit 종료 코드 1을 내지만, **Vite 8.3.5/Rolldown 1.2.16 빌드는 성공**했습니다. 빌드 성공만으로 해당 옵션의 적용을 입증할 수는 없습니다.
 
 ## GitHub Action
 

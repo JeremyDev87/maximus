@@ -22,7 +22,7 @@ Maximus は現在、Rust runtime を canonical implementation として使用し
 
 - ルートの `@jeremyfellaz/maximus` npm package は thin launcher であり、実際の実行はプラットフォーム別の prebuilt Rust binary に委譲されます。
 - 公開済みの npm wrapper と GitHub Action も、既定では同じ Rust runtime 経路を使います。
-- 公開されている npm の入口は `npx @jeremyfellaz/maximus audit`、`npx @jeremyfellaz/maximus doctor`、`npx @jeremyfellaz/maximus fix` で、インストール後のバイナリ名は引き続き `maximus` のままです。
+- 公開されている npm の入口は `npx @jeremyfellaz/maximus@0.1.4 audit`、`npx @jeremyfellaz/maximus@0.1.4 doctor`、`npx @jeremyfellaz/maximus@0.1.4 fix` で、インストール後のバイナリ名は引き続き `maximus` のままです。
 - `src/**/*.js` は parity 作業や比較のための frozen reference code としてリポジトリに残ります。optional native runtime package が入らないインストール向けの compatibility fallback として npm package にも同梱されますが、canonical runtime としては扱われません。
 - 歴史的な rewrite planning notes は maintainer の workflow に残っている場合がありますが、公開されている contributor guidance は `CONTRIBUTING.md`、`docs/roadmap.md`、`docs/runtime-transition.md`、`docs/architecture/checker-authoring.md` のような tracked repo 文書を基準にしてください。
 
@@ -41,9 +41,9 @@ Maximus は現在、Rust runtime を canonical implementation として使用し
 ## コマンド
 
 ```bash
- npx @jeremyfellaz/maximus audit
- npx @jeremyfellaz/maximus doctor
- npx @jeremyfellaz/maximus fix
+ npx @jeremyfellaz/maximus@0.1.4 audit
+ npx @jeremyfellaz/maximus@0.1.4 doctor
+ npx @jeremyfellaz/maximus@0.1.4 fix
 ```
 
 ### `audit`
@@ -62,6 +62,12 @@ Maximus は現在、Rust runtime を canonical implementation として使用し
 
 - 実際の `.env` ファイルから `.env.example` を生成
 - `.env.example` に不足しているキーを追加
+
+## Vite alias デモ
+
+[再現手順](CONTRIBUTING.md#vite-alias-reproduction)と[英語の結果](README.en.md#vite-alias-demo)は、公開 npm `0.1.4` ではなく、ローカルでビルドした未公開の修正候補が対象です。alias は手動で修正します。直接のオブジェクトまたは `defineConfig({ ... })` 内の literal `true` のみを確認し、動的設定・callback・plugin、すべての import、インストール済み Vite の動作は保証しません。
+
+wrapper は Node.js >=20 が必要です。prebuilt native は macOS / Linux glibc の arm64・x64 向けで、Windows / Linux musl は対象外です。native がない場合、Maximus 設定ファイルや Rust 専用オプションを使わない基本の `audit` / `doctor` / `fix --dry-run` のみ限定的な JS fallback を利用できます。デモの `--only` / `--fail-on` には native が必要です。
 
 ## 出力例
 
