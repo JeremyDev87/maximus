@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { access, chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 test("wrapper preserves conventional exit code when the child terminates by signal", async (t) => {
@@ -183,10 +183,11 @@ test("wrapper accepts execute-only installed runtime binaries", async (t) => {
     ),
     "utf8",
   );
-  await cp("/usr/bin/true", path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"));
+  // macOS Node builds can require adjacent libraries; Linux true can be a multicall symlink.
+  await copyFile(process.platform === "darwin" ? "/usr/bin/true" : process.execPath, path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"));
   await chmod(path.join(rootDir, "node_modules", runtimePackage.packageName, "bin", "maximus"), 0o111);
 
-  const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir);
+  const result = await runWrapper(path.join(rootDir, "bin", "maximus.js"), rootDir, ["--eval", ""]);
 
   assert.equal(result.code, 0);
   assert.equal(result.stdout.trim(), "");
