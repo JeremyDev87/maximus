@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
   assertInstalledNativeRuntime,
   inspectInstalledNativeRuntime,
@@ -147,7 +147,8 @@ test("installed native runtime assertion accepts execute-only runtime binaries",
     recursive: true,
   });
   const binaryPath = path.join(installRoot, "node_modules", runtimePackage.packageName, "bin", "maximus");
-  await cp("/usr/bin/true", binaryPath);
+  // macOS Node builds can require adjacent libraries; Linux true can be a multicall symlink.
+  await copyFile(process.platform === "darwin" ? "/usr/bin/true" : process.execPath, binaryPath);
   await chmod(binaryPath, 0o111);
 
   const result = await inspectInstalledNativeRuntime(installRoot);
