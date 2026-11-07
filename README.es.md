@@ -22,7 +22,7 @@ Maximus ahora usa el runtime de Rust como su implementación canónica.
 
 - El paquete npm raíz `@jeremyfellaz/maximus` es un thin launcher y la ejecución real se delega a binarios Rust precompilados específicos por plataforma.
 - El wrapper npm publicado y la GitHub Action también usan por defecto esa misma ruta de runtime en Rust.
-- El entrypoint npm publicado ahora es `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor` y `npx @jeremyfellaz/maximus fix`, mientras que el nombre del binario instalado sigue siendo `maximus`.
+- El entrypoint npm publicado ahora es `npx @jeremyfellaz/maximus@0.1.4 audit`, `npx @jeremyfellaz/maximus@0.1.4 doctor` y `npx @jeremyfellaz/maximus@0.1.4 fix`, mientras que el nombre del binario instalado sigue siendo `maximus`.
 - `src/**/*.js` sigue en el repositorio como código de referencia congelado para trabajos de paridad y comparación. También se incluye en el paquete npm como compatibility fallback cuando faltan los paquetes nativos opcionales, pero ya no se considera el runtime canónico.
 - Las notas históricas de planificación del rewrite pueden seguir existiendo en flujos internos de mantenimiento, pero la guía pública para contributors debe seguir documentos versionados del repositorio como `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md` y `docs/architecture/checker-authoring.md`.
 
@@ -41,9 +41,9 @@ Consulta el [documento de runtime transition](https://github.com/JeremyDev87/max
 ## Comandos
 
 ```bash
- npx @jeremyfellaz/maximus audit
- npx @jeremyfellaz/maximus doctor
- npx @jeremyfellaz/maximus fix
+ npx @jeremyfellaz/maximus@0.1.4 audit
+ npx @jeremyfellaz/maximus@0.1.4 doctor
+ npx @jeremyfellaz/maximus@0.1.4 fix
 ```
 
 ### `audit`
@@ -62,6 +62,12 @@ Correcciones automáticas disponibles en el MVP actual:
 
 - Crear `.env.example` a partir de archivos `.env` reales
 - Agregar claves faltantes a `.env.example`
+
+## Demo de alias de Vite
+
+La [reproducción](CONTRIBUTING.md#vite-alias-reproduction) y los [resultados en inglés](README.en.md#vite-alias-demo) usan un candidato local aún no publicado, no el paquete npm público `0.1.4`. Los alias se corrigen manualmente. Solo se confirma el literal `true` en un objeto directo o `defineConfig({ ... })`; no se certifican configuraciones dinámicas, callbacks, plugins, todos los imports ni la versión instalada de Vite.
+
+El wrapper requiere Node.js >=20. Los binarios nativos precompilados cubren macOS / Linux glibc en arm64 y x64, no Windows / Linux musl. Sin native, el fallback JS limitado solo admite `audit`, `doctor` y `fix --dry-run` básicos sin archivos de configuración de Maximus ni opciones exclusivas de Rust. `--only` y `--fail-on` del demo requieren native.
 
 ## Ejemplo de Salida
 

@@ -14,7 +14,7 @@ Bring order to chaotic configs.
 
 Maximus is a CLI that audits scattered project configuration files, untangles conflicts and duplication, and helps teams keep their development environment organized.
 
-Modern projects stand on top of countless config layers like `tsconfig`, `eslint`, `prettier`, `vite`, `jest`, `next.config`, and `.env`. Maximus restores order when that setup starts to drift.
+For example, a Vite alias can point somewhere different from TypeScript’s `paths`. Maximus reports that disagreement so you can correct the configuration and rerun your build.
 
 ## Canonical Runtime
 
@@ -22,7 +22,7 @@ Maximus now uses the Rust runtime as its canonical implementation.
 
 - The root `@jeremyfellaz/maximus` npm package is a thin launcher, and the actual execution path is delegated to platform-specific prebuilt Rust binaries.
 - The published npm wrapper and GitHub Action also target that Rust runtime path by default.
-- The published npm entrypoint is now `npx @jeremyfellaz/maximus audit`, `npx @jeremyfellaz/maximus doctor`, and `npx @jeremyfellaz/maximus fix`, while the installed binary name stays `maximus`.
+- The published npm entrypoint is now `npx @jeremyfellaz/maximus@0.1.4 audit`, `npx @jeremyfellaz/maximus@0.1.4 doctor`, and `npx @jeremyfellaz/maximus@0.1.4 fix`, while the installed binary name stays `maximus`.
 - `src/**/*.js` stays in the repository as frozen reference code for parity work and comparisons. When no native Rust runtime is available, it only serves as a limited compatibility fallback; it is no longer the primary implementation surface for new runtime or distribution behavior. Rust remains the canonical runtime for Maximus config files and Rust-only flags such as `--only`.
 - Historical rewrite planning notes may still exist in maintainer workflows, but public contributor guidance should follow tracked repo docs such as `CONTRIBUTING.md`, `docs/roadmap.md`, `docs/runtime-transition.md`, and `docs/architecture/checker-authoring.md`.
 
@@ -40,11 +40,15 @@ See the [runtime transition document](https://github.com/JeremyDev87/maximus/blo
 
 ## Commands
 
+The public install example uses the verified npm version `0.1.4` (macOS arm64). The wrapper requires Node.js >=20; prebuilt native targets are macOS and Linux glibc, each arm64/x64. Windows and Linux musl have no supported prebuilt native binary. Without native, only legacy-compatible `audit`, `doctor`, and `fix --dry-run` without Maximus config files or Rust-only flags can use the limited JS fallback; the demo below requires native.
+
 ```bash
-npx @jeremyfellaz/maximus audit
-npx @jeremyfellaz/maximus doctor
-npx @jeremyfellaz/maximus fix
+npx @jeremyfellaz/maximus@0.1.4 audit
+npx @jeremyfellaz/maximus@0.1.4 doctor
+npx @jeremyfellaz/maximus@0.1.4 fix
 ```
+
+Use `npx @jeremyfellaz/maximus audit` to inspect the current project with the latest public version. The `@0.1.4` examples above pin the version used for verification.
 
 ### `audit`
 
@@ -91,27 +95,23 @@ Both lists are exact keys excluded from `env-missing-concrete`. There is no glob
 
 No-op excludes that only repeat TypeScript's default excluded directories, such as `exclude: ["node_modules"]`, are hidden from the default audit output. Non-default excludes that carry project intent, such as `generated/**/*.ts` or `dist/**/*.d.ts`, still produce the existing `Info` finding when they do not remove any included files. Warnings for `include` patterns that match no files are unchanged.
 
-## Example Output
+## Vite Alias Demo
 
-```text
-Maximus audit
-Target: /workspace/my-app
+This demo uses the **local, unpublished fix candidate**, built with `cargo build -p maximus-cli` and run as `target/debug/maximus`. It is not a claim about the public `0.1.4` package or `npx` latest. Run the [copyable temporary-project recipe](CONTRIBUTING.md#vite-alias-reproduction) with Node.js 24 and Vite 8.3.5.
 
-Status: attention needed
-Findings: 1 error, 2 warnings, 1 info
-Fixes available: 1
+With TypeScript mapping `@/*` to `src/*`, the recipe runs this audit for each configuration:
 
-Findings
-- [error] Path alias target does not exist
-  file: packages/web/tsconfig.json
-  detail: @ui/* points to src/missing/*
-  hint: Update or remove the stale alias target.
-
-- [warn] Missing .env.example contract
-  file: .env
-  detail: Runtime env files exist, but .env.example is missing.
-  hint: Run `maximus fix` to create a blank contract file.
+```bash
+target/debug/maximus audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info
 ```
+
+| Configuration | Filtered audit result / exit | Vite build exit |
+| --- | --- | --- |
+| Vite `@` points at a nonexistent absolute directory | `warn`: `Vite alias "@" differs from tsconfig paths` / 1 | 1 (cannot load the import) |
+| Manually change Vite `@` to the absolute `src` directory | No findings / 0 | 0 |
+| Remove the alias; set `resolve: { tsconfigPaths: true }` | No redundant tsconfig-only finding / 0 | 0 |
+
+Maximus does not auto-fix aliases; `fix` remains limited to the env examples listed above. The candidate confirms literal `true` only in a direct exported object or `defineConfig({ ... })`. Dynamic values, callbacks, plugins, and ambiguous keys/spreads remain unconfirmed. It audits declared configuration, not every import or the installed Vite version. In the same demo, `tsconfigPaths: false` produces `info` and audit exit 1, but **Vite 8.3.5/Rolldown 1.2.16 still builds successfully**; build success alone does not prove the option took effect.
 
 ## GitHub Action
 

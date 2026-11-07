@@ -53,6 +53,82 @@ cargo test --workspace
 node ./bin/maximus.js audit ./test/fixtures/clean-project
 ```
 
+## Vite Alias Reproduction
+
+Run this from the repository checkout containing the **unpublished fix candidate**. It builds and directly runs `target/debug/maximus`; the public npm `0.1.4` install is a separate baseline and does not contain this fix. Prerequisites: Rust/Cargo, Node.js 24, npm, and a POSIX shell on macOS or Linux. Node.js 24 is for this Vite demo; the Maximus wrapper requirement remains Node.js >=20.
+
+Copy the entire block. It creates only dummy inputs in a fresh temporary directory, pins Vite 8.3.5 there, and removes that directory and its caches on exit. Expected nonzero exits are handled explicitly so the first failure does not stop the demo. Alias correction is manual, not `maximus fix`.
+
+```bash
+(
+set -eu
+MAXIMUS_REPO="$(pwd -P)"
+cargo build -p maximus-cli
+MAXIMUS_BIN="$MAXIMUS_REPO/target/debug/maximus"
+DEMO_TMP="$(mktemp -d "${TMPDIR:-/tmp}/maximus-alias-demo.XXXXXX")"
+DEMO_TMP="$(cd "$DEMO_TMP" && pwd -P)"
+trap 'rm -rf -- "$DEMO_TMP"' EXIT
+export MAXIMUS_DEMO_ROOT="$DEMO_TMP/demo"
+export TMPDIR="$DEMO_TMP/tmp"
+export npm_config_cache="$DEMO_TMP/npm-cache"
+export NODE_COMPILE_CACHE="$DEMO_TMP/node-cache"
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH="$DEMO_TMP/bun-cache"
+mkdir -p "$MAXIMUS_DEMO_ROOT/src" "$TMPDIR" "$NODE_COMPILE_CACHE" "$BUN_RUNTIME_TRANSPILER_CACHE_PATH"
+cat > "$MAXIMUS_DEMO_ROOT/package.json" <<'JSON'
+{"name":"maximus-alias-demo","private":true,"type":"module","scripts":{"build":"vite build"}}
+JSON
+cat > "$MAXIMUS_DEMO_ROOT/index.html" <<'HTML'
+<!doctype html><html><body><script type="module" src="/src/main.ts"></script></body></html>
+HTML
+cat > "$MAXIMUS_DEMO_ROOT/src/main.ts" <<'TS'
+import { message } from '@/message';
+document.body.textContent = message;
+TS
+cat > "$MAXIMUS_DEMO_ROOT/src/message.ts" <<'TS'
+export const message = 'Maximus alias demo';
+TS
+cat > "$MAXIMUS_DEMO_ROOT/tsconfig.json" <<'JSON'
+{"compilerOptions":{"baseUrl":".","paths":{"@/*":["src/*"]}},"include":["src"]}
+JSON
+npm install --ignore-scripts --no-audit --no-fund --prefix "$MAXIMUS_DEMO_ROOT" vite@8.3.5
+
+# 1. A nonexistent absolute Vite alias conflicts with TypeScript's src path.
+node --input-type=module -e 'import fs from "node:fs"; const root=process.env.MAXIMUS_DEMO_ROOT; fs.writeFileSync(root+"/vite.config.mjs", `export default { resolve: { alias: { "@": ${JSON.stringify(root+"/missing")} } } };\n`);'
+if "$MAXIMUS_BIN" audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info; then audit_exit=0; else audit_exit=$?; fi
+if (cd "$MAXIMUS_DEMO_ROOT" && npm run build); then build_exit=0; else build_exit=$?; fi
+printf 'conflict: audit=%s build=%s\n' "$audit_exit" "$build_exit"
+test "$audit_exit" -eq 1
+test "$build_exit" -eq 1
+
+# 2. Manually point Vite at the real src directory, then rerun both commands.
+node --input-type=module -e 'import fs from "node:fs"; const root=process.env.MAXIMUS_DEMO_ROOT; fs.writeFileSync(root+"/vite.config.mjs", `export default { resolve: { alias: { "@": ${JSON.stringify(root+"/src")} } } };\n`);'
+"$MAXIMUS_BIN" audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info
+(cd "$MAXIMUS_DEMO_ROOT" && npm run build)
+printf 'manual correction: audit=0 build=0\n'
+
+# 3. Remove the explicit alias and declare native tsconfig paths.
+cat > "$MAXIMUS_DEMO_ROOT/vite.config.mjs" <<'JS'
+export default { resolve: { tsconfigPaths: true } };
+JS
+"$MAXIMUS_BIN" audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info
+(cd "$MAXIMUS_DEMO_ROOT" && npm run build)
+printf 'native true: audit=0 build=0\n'
+
+# Negative diagnostic control: false still builds with the observed Vite/Rolldown pair.
+cat > "$MAXIMUS_DEMO_ROOT/vite.config.mjs" <<'JS'
+export default { resolve: { tsconfigPaths: false } };
+JS
+if "$MAXIMUS_BIN" audit "$MAXIMUS_DEMO_ROOT" --only vite-tsconfig-alias --json --fail-on info; then audit_exit=0; else audit_exit=$?; fi
+(cd "$MAXIMUS_DEMO_ROOT" && npm run build)
+printf 'native false: audit=%s build=0\n' "$audit_exit"
+test "$audit_exit" -eq 1
+)
+```
+
+The conflict yields one `warn` (`Vite alias "@" differs from tsconfig paths`) and a build import-resolution failure. Manual correction and native `true` yield no filtered findings and build exit 0. The negative control yields one `info` ending in `:tsconfig-only` and audit exit 1 with `--fail-on info`, while Vite 8.3.5/Rolldown 1.2.16 still builds successfully. These results check declared configuration; they do not establish that `true` caused build success or that `false` must fail a build.
+
+The candidate confirms native paths only for literal `true` in `export default { ... }` or `export default defineConfig({ ... })`. Dynamic values, callbacks, plugins, duplicate/escaped/computed keys and spreads remain unconfirmed. Maximus does not execute the Vite config during audit, certify the installed Vite version, or resolve every import. The build commands do execute this dummy Vite config. The demo's `--only` and `--fail-on` require native Rust; the limited JS fallback cannot run them.
+
 ## Project Shape
 
 ```text

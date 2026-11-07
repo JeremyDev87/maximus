@@ -22,7 +22,7 @@ Maximus 现在使用 Rust runtime 作为 canonical implementation。
 
 - 根 `@jeremyfellaz/maximus` npm package 是一个 thin launcher，实际执行委托给按平台分发的 prebuilt Rust binary。
 - 已发布的 npm wrapper 和 GitHub Action 默认也会走同一条 Rust runtime 路径。
-- 已发布的 npm 入口现在是 `npx @jeremyfellaz/maximus audit`、`npx @jeremyfellaz/maximus doctor`、`npx @jeremyfellaz/maximus fix`，而安装后的二进制名称仍保持为 `maximus`。
+- 已发布的 npm 入口现在是 `npx @jeremyfellaz/maximus@0.1.4 audit`、`npx @jeremyfellaz/maximus@0.1.4 doctor`、`npx @jeremyfellaz/maximus@0.1.4 fix`，而安装后的二进制名称仍保持为 `maximus`。
 - `src/**/*.js` 仍保留在仓库中，作为用于 parity 和比较的 frozen reference code。它也会继续随 npm package 一起分发，作为缺少 optional native runtime package 时的 compatibility fallback，但不再被视为 canonical runtime。
 - 历史性的 rewrite planning notes 可能仍存在于维护者工作流中，但公开的 contributor guidance 应以仓库内可追踪的文档为准，例如 `CONTRIBUTING.md`、`docs/roadmap.md`、`docs/runtime-transition.md` 和 `docs/architecture/checker-authoring.md`。
 
@@ -41,9 +41,9 @@ Maximus 现在使用 Rust runtime 作为 canonical implementation。
 ## 命令
 
 ```bash
- npx @jeremyfellaz/maximus audit
- npx @jeremyfellaz/maximus doctor
- npx @jeremyfellaz/maximus fix
+ npx @jeremyfellaz/maximus@0.1.4 audit
+ npx @jeremyfellaz/maximus@0.1.4 doctor
+ npx @jeremyfellaz/maximus@0.1.4 fix
 ```
 
 ### `audit`
@@ -62,6 +62,12 @@ Maximus 现在使用 Rust runtime 作为 canonical implementation。
 
 - 根据实际 `.env` 文件生成 `.env.example`
 - 将缺失的键追加到 `.env.example`
+
+## Vite 别名演示
+
+[复现步骤](CONTRIBUTING.md#vite-alias-reproduction)和[英文结果](README.en.md#vite-alias-demo)使用本地构建、尚未发布的修复候选版本，并非公开的 npm `0.1.4`。别名需要手动修改。仅确认直接导出的对象或 `defineConfig({ ... })` 中的字面量 `true`；不保证动态配置、callback、plugin、所有 import 或已安装 Vite 版本的运行结果。
+
+wrapper 需要 Node.js >=20。预构建 native 支持 macOS / Linux glibc 的 arm64、x64，不支持 Windows / Linux musl。缺少 native 时，有限的 JS fallback 仅支持不使用 Maximus 配置文件或 Rust 专属选项的基本 `audit`、`doctor`、`fix --dry-run`。演示中的 `--only`、`--fail-on` 需要 native。
 
 ## 输出示例
 
