@@ -310,7 +310,7 @@ jobs:
             platform: linux-arm64-gnu
           - label: macos-15-intel
             platform: darwin-x64
-          - label: macos-14
+          - label: macos-15
             platform: darwin-arm64
 
     steps:
