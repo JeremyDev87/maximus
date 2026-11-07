@@ -1856,6 +1856,22 @@ fn native_tsconfig_paths_preserves_cli_contract() {
             Some("info"),
         ),
         (
+            "const text = `outer ${`export default { resolve: { tsconfigPaths: true } };`} tail`; export default { resolve: { tsconfigPaths: false } };",
+            Some("info"),
+        ),
+        (
+            "const text = `outer ${`export default { resolve: { tsconfigPaths: true } };`} tail`; export default {};",
+            Some("info"),
+        ),
+        (
+            "const text = `export default { resolve: { tsconfigPaths: true } };`; export default { resolve: { tsconfigPaths: false } };",
+            Some("info"),
+        ),
+        (
+            "const text = `export default { resolve: { tsconfigPaths: false } };`; export default { resolve: { tsconfigPaths: true } };",
+            None,
+        ),
+        (
             r"export default { resolve: { tsconfigPaths: true, 'tsconfig\u0050aths': false } }",
             Some("info"),
         ),

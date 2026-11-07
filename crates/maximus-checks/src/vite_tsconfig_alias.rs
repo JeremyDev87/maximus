@@ -340,7 +340,7 @@ fn find_top_level_arrow(text: &str, mut cursor: usize, limit: usize) -> Option<u
     None
 }
 
-fn find_export_default_value_start(text: &str, allow_ambiguous_slash: bool) -> Option<usize> {
+fn find_export_default_value_start(text: &str, allow_ambiguous_syntax: bool) -> Option<usize> {
     let mut index = 0;
 
     while index < text.len() {
@@ -353,7 +353,12 @@ fn find_export_default_value_start(text: &str, allow_ambiguous_slash: bool) -> O
                 continue;
             }
             '`' => {
-                index = skip_template_literal(text, index)?;
+                let next_index = skip_template_literal(text, index)?;
+                // Interpolation may contain nested templates that the literal skipper cannot skip.
+                if !allow_ambiguous_syntax && text[index..next_index].contains("${") {
+                    return None;
+                }
+                index = next_index;
                 continue;
             }
             '/' if text[index + ch.len_utf8()..].starts_with('/') => {
@@ -380,7 +385,7 @@ fn find_export_default_value_start(text: &str, allow_ambiguous_slash: bool) -> O
                 continue;
             }
             // A slash outside comments may begin a regex containing a fake export.
-            '/' if !allow_ambiguous_slash => return None,
+            '/' if !allow_ambiguous_syntax => return None,
             _ => {}
         }
 
