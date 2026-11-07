@@ -82,6 +82,35 @@ try {
 
   await assertInstalledNativeRuntime(installRoot);
   await removeJsFallback(installRoot);
+
+  const nativeFixture = path.join(tempRoot, "native-tsconfig-paths");
+  await mkdir(nativeFixture);
+  await writeFile(path.join(nativeFixture, "package.json"), '{ "private": true }\n', "utf8");
+  await writeFile(
+    path.join(nativeFixture, "tsconfig.json"),
+    '{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }\n',
+    "utf8",
+  );
+  const nativeConfig = path.join(nativeFixture, "vite.config.mjs");
+  const nativeArgs = [
+    "audit", nativeFixture, "--only", "vite-tsconfig-alias", "--json", "--fail-on", "info",
+  ];
+  await writeFile(nativeConfig, "export default { resolve: { tsconfigPaths: true } };\n", "utf8");
+  const nativeResult = await runWrapper(nativeArgs, installRoot);
+  assert.deepEqual(
+    JSON.parse(nativeResult.stdout).findings.filter((finding) => finding.category === "vite-tsconfig-alias"),
+    [],
+  );
+
+  await writeFile(nativeConfig, "export default { resolve: { tsconfigPaths: false } };\n", "utf8");
+  const disabledResult = await assertWrapperFails(nativeArgs, installRoot, /:tsconfig-only/);
+  assert.equal(disabledResult.code, 1);
+  const disabledFindings = JSON.parse(disabledResult.stdout).findings;
+  assert.equal(disabledFindings.length, 1);
+  assert.equal(disabledFindings[0].category, "vite-tsconfig-alias");
+  assert.equal(disabledFindings[0].severity, "info");
+  assert.match(disabledFindings[0].id, /:tsconfig-only$/);
+
   await runScenario(installRoot);
 
   const omitOptionalInstallRoot = await installPackedPackages(tempRoot, rootTarball, {
@@ -378,7 +407,7 @@ async function removeJsFallback(installRoot) {
 
 async function runWrapper(args, cwd) {
   const launch = await resolvePackedWrapperLaunch(cwd);
-  await runCommandAsync(launch.command, [...launch.args, ...args], {
+  return await runCommandAsync(launch.command, [...launch.args, ...args], {
     cwd,
     encoding: "utf8",
     env: {
@@ -406,6 +435,7 @@ async function assertWrapperFails(args, cwd, expectedPattern) {
 
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
   assert.match(combinedOutput, expectedPattern);
+  return result;
 }
 
 function runCommand(command, args, options) {
