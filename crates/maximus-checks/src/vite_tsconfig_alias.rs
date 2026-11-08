@@ -342,6 +342,7 @@ fn find_top_level_arrow(text: &str, mut cursor: usize, limit: usize) -> Option<u
 
 fn find_export_default_value_start(text: &str, allow_ambiguous_syntax: bool) -> Option<usize> {
     let mut index = 0;
+    let mut value_start = None;
 
     while index < text.len() {
         let ch = text[index..].chars().next()?;
@@ -389,17 +390,21 @@ fn find_export_default_value_start(text: &str, allow_ambiguous_syntax: bool) -> 
             _ => {}
         }
 
-        if starts_with_keyword(text, index, "export") {
+        if value_start.is_none() && starts_with_keyword(text, index, "export") {
             let cursor = skip_ws_and_comments(text, index + "export".len());
             if starts_with_keyword(text, cursor, "default") {
-                return Some(skip_ws_and_comments(text, cursor + "default".len()));
+                value_start = Some(skip_ws_and_comments(text, cursor + "default".len()));
+                if allow_ambiguous_syntax {
+                    return value_start;
+                }
+                // Validate internal literals before trusting the exported object's delimiters.
             }
         }
 
         index += ch.len_utf8();
     }
 
-    None
+    value_start
 }
 
 fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
